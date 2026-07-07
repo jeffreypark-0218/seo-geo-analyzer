@@ -5,7 +5,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { analyze } = require("./analyzer");
+const { analyze, scoreKeyword } = require("./analyzer");
 
 const PORT = process.env.PORT || 3000;
 const CONCURRENCY = 5;
@@ -73,6 +73,180 @@ async function collectSitemapUrls(sitemapUrl, depth, acc, seen) {
   } catch (e) { /* sitemap 접근 실패는 무시 */ }
 }
 
+/* ===== 공용 크롤 엔진 ===== */
+async function crawlSite(start, ignoreQuery, isAborted, onEvent, keepResults) {
+  const t0 = Date.now();
+  let robots = null, llms = null;
+  try { const r = await fetchText(start.origin + "/robots.txt"); robots = r.ok ? await r.text() : ""; } catch (e) { robots = null; }
+  try { const r = await fetchText(start.origin + "/llms.txt"); llms = r.ok ? await r.text() : ""; } catch (e) { llms = null; }
+  if (llms && /<html/i.test(llms.slice(0, 300))) llms = "";
+  const disallow = parseDisallow(robots);
+  const extras = { robots, llms };
+
+  const sitemapSeeds = [];
+  const smSeen = new Set();
+  const declared = robots ? [...robots.matchAll(/sitemap:\s*(\S+)/gi)].map(m => m[1]) : [];
+  if (!declared.length) declared.push(start.origin + "/sitemap.xml");
+  for (const sm of declared) await collectSitemapUrls(sm, 0, sitemapSeeds, smSeen);
+  onEvent("init", { robots: robots !== null && robots !== "", sitemapUrls: sitemapSeeds.length });
+
+  const visited = new Set();
+  const queue = [];
+  const enqueue = raw => {
+    try {
+      const n = normalizeUrl(raw, ignoreQuery);
+      if (visited.has(n) || !sameSite(n, start.href) || SKIP_EXT.test(n)) return;
+      if (isDisallowed(n, disallow)) return;
+      visited.add(n);
+      queue.push(n);
+    } catch (e) { /* skip invalid */ }
+  };
+  enqueue(start.href);
+  sitemapSeeds.forEach(enqueue);
+
+  let analyzed = 0, failed = 0;
+  const results = [];
+
+  async function worker() {
+    while (!isAborted()) {
+      const url = queue.shift();
+      if (url === undefined) return;
+      try {
+        const r = await fetchText(url);
+        const ct = r.headers.get("content-type") || "";
+        if (!r.ok) { failed++; onEvent("pageError", { url, error: "HTTP " + r.status }); continue; }
+        if (!ct.includes("text/html")) continue;
+        const html = await r.text();
+        const result = analyze(html, r.url || url, extras);
+        analyzed++;
+        result.internalUrls.forEach(enqueue);
+        if (keepResults) results.push(result);
+        onEvent("page", {
+          url: result.url, title: result.title, scores: result.scores, checks: keepResults ? undefined : result.checks,
+          analyzed, discovered: visited.size, queued: queue.length
+        });
+      } catch (e) {
+        failed++;
+        onEvent("pageError", { url, error: e.name === "TimeoutError" ? "시간 초과" : e.message });
+      }
+    }
+  }
+
+  while (!isAborted() && queue.length) {
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  }
+
+  return { analyzed, failed, discovered: visited.size, elapsedSec: Math.round((Date.now() - t0) / 1000), results, extras, disallow };
+}
+
+/* ===== 검색 실측 (네이버/구글) ===== */
+function hostMatch(link, host) {
+  try {
+    const h = new URL(link).hostname.replace(/^www\./, "");
+    return h === host || h.endsWith("." + host);
+  } catch (e) { return false; }
+}
+
+async function naverRank(kw, host, id, secret) {
+  try {
+    const r = await fetch("https://openapi.naver.com/v1/search/webkr.json?display=30&query=" + encodeURIComponent(kw), {
+      headers: { "X-Naver-Client-Id": id, "X-Naver-Client-Secret": secret },
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!r.ok) return { error: "네이버 API 오류 (HTTP " + r.status + ") — 키 확인 필요" };
+    const j = await r.json();
+    const items = j.items || [];
+    const idx = items.findIndex(it => hostMatch(it.link, host));
+    return { rank: idx === -1 ? null : idx + 1, checked: items.length, top: items.slice(0, 3).map(it => ({ title: (it.title || "").replace(/<[^>]+>/g, ""), link: it.link })) };
+  } catch (e) { return { error: "네이버 API 호출 실패: " + e.message }; }
+}
+
+async function googleRank(kw, host, key, cx) {
+  try {
+    const r = await fetch("https://www.googleapis.com/customsearch/v1?key=" + encodeURIComponent(key) + "&cx=" + encodeURIComponent(cx) + "&num=10&q=" + encodeURIComponent(kw), {
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!r.ok) return { error: "구글 API 오류 (HTTP " + r.status + ") — 키/CX 확인 필요" };
+    const j = await r.json();
+    const items = j.items || [];
+    const idx = items.findIndex(it => hostMatch(it.link, host));
+    return { rank: idx === -1 ? null : idx + 1, checked: items.length, top: items.slice(0, 3).map(it => ({ title: it.title, link: it.link })) };
+  } catch (e) { return { error: "구글 API 호출 실패: " + e.message }; }
+}
+
+/* ===== 키워드 분석 핸들러 ===== */
+async function handleKeywordAnalyze(req, res, query) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive"
+  });
+  const send = (type, data) => res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+  let aborted = false;
+  req.on("close", () => { aborted = true; });
+
+  let start;
+  try {
+    let input = (query.get("url") || "").trim();
+    if (!/^https?:\/\//i.test(input)) input = "https://" + input;
+    start = new URL(input);
+  } catch (e) {
+    send("fatal", { message: "올바른 URL 형식이 아닙니다." });
+    return res.end();
+  }
+  const keywords = (query.get("keywords") || "").split(",").map(s => s.trim()).filter(Boolean).slice(0, 10);
+  if (!keywords.length) {
+    send("fatal", { message: "키워드를 1개 이상 입력하세요." });
+    return res.end();
+  }
+  const nid = query.get("nid") || "", nsec = query.get("nsec") || "";
+  const gkey = query.get("gkey") || "", gcx = query.get("gcx") || "";
+  const host = start.hostname.replace(/^www\./, "");
+
+  const crawl = await crawlSite(start, query.get("ignoreQuery") !== "0", () => aborted, send, true);
+  if (aborted) return res.end();
+
+  // AI 크롤러 차단 정보 (사이트 단위)
+  const AI_BOTS = ["gptbot", "oai-searchbot", "chatgpt-user", "perplexitybot", "claudebot", "google-extended", "ccbot"];
+  const aiBlocked = [];
+  if (crawl.extras.robots) {
+    const blocks = crawl.extras.robots.toLowerCase().split(/(?=user-agent:)/);
+    for (const b of blocks) {
+      const ua = (b.match(/user-agent:\s*(\S+)/) || [])[1] || "";
+      if (AI_BOTS.some(bot => ua.includes(bot)) && /disallow:\s*\/\s*$/m.test(b)) aiBlocked.push(ua);
+    }
+  }
+  const kwExtras = { robots: crawl.extras.robots, aiBlocked };
+
+  for (const kw of keywords) {
+    if (aborted) break;
+    send("keywordStart", { keyword: kw });
+
+    const scored = crawl.results.map(r => scoreKeyword(r, kw, kwExtras))
+      .sort((a, b) => b.scores.total - a.scores.total || b.scores.relevance - a.scores.relevance);
+    const top = scored.slice(0, 5);
+    const best = top[0] || null;
+    const coverage = scored.filter(s => s.scores.relevance >= 40).length;
+
+    const [naver, google] = await Promise.all([
+      nid && nsec ? naverRank(kw, host, nid, nsec) : Promise.resolve(null),
+      gkey && gcx ? googleRank(kw, host, gkey, gcx) : Promise.resolve(null)
+    ]);
+
+    send("keywordResult", {
+      keyword: kw,
+      best: best ? { url: best.url, title: best.title, scores: best.scores, checks: best.checks } : null,
+      top: top.map(t => ({ url: t.url, title: t.title, scores: t.scores })),
+      coverage,
+      totalPages: crawl.results.length,
+      naver, google
+    });
+  }
+
+  send("done", { analyzed: crawl.analyzed, elapsedSec: crawl.elapsedSec });
+  res.end();
+}
+
 /* SSE 크롤 핸들러 */
 async function handleCrawl(req, res, query) {
   res.writeHead(200, {
@@ -94,74 +268,9 @@ async function handleCrawl(req, res, query) {
     send("fatal", { message: "올바른 URL 형식이 아닙니다." });
     return res.end();
   }
-  const ignoreQuery = query.get("ignoreQuery") !== "0";
-  const t0 = Date.now();
-
-  // 1. robots.txt / llms.txt
-  let robots = null, llms = null;
-  try { const r = await fetchText(start.origin + "/robots.txt"); robots = r.ok ? await r.text() : ""; } catch (e) { robots = null; }
-  try { const r = await fetchText(start.origin + "/llms.txt"); llms = r.ok ? await r.text() : ""; } catch (e) { llms = null; }
-  if (llms && /<html/i.test(llms.slice(0, 300))) llms = ""; // 404 페이지 오탐 방지
-  const disallow = parseDisallow(robots);
-  const extras = { robots, llms };
-
-  // 2. 사이트맵 URL 수집
-  const sitemapSeeds = [];
-  const smSeen = new Set();
-  const declared = robots ? [...robots.matchAll(/sitemap:\s*(\S+)/gi)].map(m => m[1]) : [];
-  if (!declared.length) declared.push(start.origin + "/sitemap.xml");
-  for (const sm of declared) await collectSitemapUrls(sm, 0, sitemapSeeds, smSeen);
-  send("init", { robots: robots !== null && robots !== "", sitemapUrls: sitemapSeeds.length });
-
-  // 3. 크롤 큐
-  const visited = new Set();
-  const queue = [];
-  const enqueue = raw => {
-    try {
-      const n = normalizeUrl(raw, ignoreQuery);
-      if (visited.has(n) || !sameSite(n, start.href) || SKIP_EXT.test(n)) return;
-      if (isDisallowed(n, disallow)) return;
-      visited.add(n);
-      queue.push(n);
-    } catch (e) { /* skip invalid */ }
-  };
-  enqueue(start.href);
-  sitemapSeeds.forEach(enqueue);
-
-  let analyzed = 0, failed = 0;
-  const pages = [];
-
-  async function worker() {
-    while (!aborted) {
-      const url = queue.shift();
-      if (url === undefined) return;
-      try {
-        const r = await fetchText(url);
-        const ct = r.headers.get("content-type") || "";
-        if (!r.ok) { failed++; send("pageError", { url, error: "HTTP " + r.status }); continue; }
-        if (!ct.includes("text/html")) continue;
-        const html = await r.text();
-        const result = analyze(html, r.url || url, extras);
-        analyzed++;
-        result.internalUrls.forEach(enqueue);
-        pages.push({ url: result.url, title: result.title, scores: result.scores });
-        send("page", {
-          url: result.url, title: result.title, scores: result.scores, checks: result.checks,
-          analyzed, discovered: visited.size, queued: queue.length
-        });
-      } catch (e) {
-        failed++;
-        send("pageError", { url, error: e.name === "TimeoutError" ? "시간 초과" : e.message });
-      }
-    }
-  }
-
-  // 큐가 비어도 진행 중인 워커가 링크를 추가할 수 있으므로 라운드 반복
-  while (!aborted && queue.length) {
-    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-  }
-
-  send("done", { analyzed, failed, discovered: visited.size, elapsedSec: Math.round((Date.now() - t0) / 1000) });
+  const crawl = await crawlSite(start, query.get("ignoreQuery") !== "0", () => aborted, send, false);
+  if (aborted) return res.end();
+  send("done", { analyzed: crawl.analyzed, failed: crawl.failed, discovered: crawl.discovered, elapsedSec: crawl.elapsedSec });
   res.end();
 }
 
@@ -169,10 +278,9 @@ async function handleCrawl(req, res, query) {
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, "http://localhost");
   if (u.pathname === "/api/crawl") return handleCrawl(req, res, u.searchParams);
+  if (u.pathname === "/api/keyword-analyze") return handleKeywordAnalyze(req, res, u.searchParams);
   if (u.pathname === "/" || u.pathname === "/index.html") {
-    const f = fs.existsSync(path.join(__dirname, "index.html"))
-      ? path.join(__dirname, "index.html")
-      : path.join(__dirname, "public", "index.html");
+    const f = path.join(__dirname, "public", "index.html");
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     return fs.createReadStream(f).pipe(res);
   }

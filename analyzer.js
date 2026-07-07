@@ -19,9 +19,10 @@ function scoreAxis(checks, axis) {
   return max ? Math.round(got / max * 100) : 0;
 }
 
-function parseJsonLd(doc) {
+function parseJsonLd(doc, rawOut) {
   const types = [];
   doc.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
+    if (rawOut) rawOut.push(s.textContent || "");
     try {
       const collect = o => {
         if (!o) return;
@@ -60,7 +61,8 @@ function analyze(rawHtml, url, extras) {
   const links = [...doc.querySelectorAll("a[href]")];
   const internal = links.filter(a => { try { return new URL(a.getAttribute("href"), url).hostname === u.hostname; } catch (e) { return false; } });
   const external = links.filter(a => { try { const h = new URL(a.getAttribute("href"), url); return h.protocol.startsWith("http") && h.hostname !== u.hostname; } catch (e) { return false; } });
-  const ldTypes = parseJsonLd(doc);
+  const ldRawArr = [];
+  const ldTypes = parseJsonLd(doc, ldRawArr);
   const text = bodyText(doc);
   const textLen = text.length;
   const ogT = prop("og:title"), ogD = prop("og:description"), ogI = prop("og:image");
@@ -344,7 +346,187 @@ function analyze(rawHtml, url, extras) {
   Object.keys(AXES).forEach(a => scores[a] = scoreAxis(C, a));
   scores.total = Math.round((scores.google + scores.naver + scores.geo + scores.tech) / 4);
 
-  return { url, title, checks: C, scores, internalUrls };
+  // 키워드 분석용 페이지 원자료
+  const page = {
+    titleText: title,
+    metaDesc: desc,
+    ogTitle: ogT,
+    ogDesc: ogD,
+    h1Texts: [...h1s].map(h => (h.textContent || "").trim()),
+    h23Texts: [...doc.querySelectorAll("h2,h3")].map(h => (h.textContent || "").trim()),
+    questionHeadTexts: headings.filter(h => /\?|무엇|어떻게|왜|방법|언제|어디|이유|what|how|why|when/i.test(h.textContent)).map(h => (h.textContent || "").trim()),
+    text: text.slice(0, 80000),
+    paras: paras.slice(0, 300).map(p => (p.textContent || "").trim()),
+    ldRaw: ldRawArr.join(" ").slice(0, 30000),
+    ldTypes: [...new Set(ldTypes)],
+    hasFaqSchema: hasSchemaOf("FAQPage", "HowTo", "QAPage"),
+    statCount, quotations,
+    externalCount: external.length,
+    hasAuthor: !!author,
+    hasDate: !!(modTime || pubTime),
+    textLen, allScripts,
+    noindex: robotsMeta.includes("noindex"),
+    https: u.protocol === "https:",
+    listsTables: lists + tables
+  };
+
+  return { url, title, checks: C, scores, internalUrls, page };
 }
 
-module.exports = { analyze, scoreAxis, AXES };
+/* ===== 키워드 적합도 채점 ===== */
+function kwIn(str, kw) {
+  if (!str) return 0;
+  const s = String(str).toLowerCase();
+  const k = kw.toLowerCase().trim();
+  if (s.includes(k)) return 2; // 완전 일치
+  const toks = k.split(/\s+/).filter(t => t.length >= 1);
+  if (toks.length > 1 && toks.every(t => s.includes(t))) return 1; // 토큰 모두 포함
+  return 0;
+}
+
+function countKw(text, kw) {
+  const s = (text || "").toLowerCase();
+  const k = kw.toLowerCase().trim();
+  let n = 0, i = 0;
+  while ((i = s.indexOf(k, i)) !== -1) { n++; i += k.length; }
+  if (n === 0) {
+    const toks = k.split(/\s+/).filter(t => t.length >= 2);
+    if (toks.length > 1 && toks.every(t => s.includes(t))) n = 1;
+  }
+  return n;
+}
+
+const KW_AXES = {
+  relevance:   { name: "콘텐츠 관련성", desc: "키워드가 제목·헤딩·본문에 배치되었는가" },
+  answer:      { name: "답변 적합성", desc: "질문에 대한 직접 답변 구조가 있는가" },
+  evidence:    { name: "근거·신뢰", desc: "통계·출처·작성자 등 인용 요건" },
+  eligibility: { name: "검색 자격", desc: "색인·AI 크롤러·정적 HTML" }
+};
+
+function scoreKeyword(result, keyword, extras) {
+  const p = result.page;
+  const kw = keyword.trim();
+  const C = [];
+  const add = (axis, label, weight, status, detail, advice) => C.push({ axis, label, weight, status, detail, advice: status === "pass" ? "" : advice });
+
+  /* 콘텐츠 관련성 */
+  const inTitle = kwIn(p.titleText, kw);
+  add("relevance", "타이틀에 키워드", 3,
+    inTitle === 2 ? "pass" : (inTitle === 1 ? "warn" : "fail"),
+    inTitle ? `"${p.titleText.slice(0, 50)}"` : "타이틀에 키워드 없음",
+    `페이지 타이틀에 "${kw}"를 그대로, 가급적 앞쪽에 배치하세요. 검색·AI 모두 타이틀을 1순위 관련성 신호로 봅니다.`);
+  const inH1 = Math.max(0, ...p.h1Texts.map(t => kwIn(t, kw)), 0);
+  add("relevance", "H1에 키워드", 2,
+    inH1 === 2 ? "pass" : (inH1 === 1 ? "warn" : "fail"),
+    p.h1Texts.length ? `H1: "${(p.h1Texts[0] || "").slice(0, 50)}"` : "H1 없음",
+    `H1 제목에 "${kw}"를 포함하세요.`);
+  const inH23 = Math.max(0, ...p.h23Texts.map(t => kwIn(t, kw)), 0);
+  add("relevance", "소제목(H2/H3)에 키워드", 2,
+    inH23 === 2 ? "pass" : (inH23 === 1 ? "warn" : "fail"),
+    `소제목 ${p.h23Texts.length}개 중 키워드 포함 ${p.h23Texts.filter(t => kwIn(t, kw) > 0).length}개`,
+    `"${kw}" 관련 하위 주제를 H2/H3 소제목으로 다루세요. AI의 질문 확장(fan-out) 검색에 걸리는 지점입니다.`);
+  const bodyCount = countKw(p.text, kw);
+  add("relevance", "본문 등장 빈도", 2,
+    bodyCount >= 3 ? "pass" : (bodyCount >= 1 ? "warn" : "fail"),
+    `본문에 약 ${bodyCount}회 등장`,
+    `본문에서 "${kw}"를 자연스럽게 3회 이상 다루세요. 다만 기계적 반복(스터핑)은 역효과입니다.`);
+  const firstIdx = p.text.toLowerCase().indexOf(kw.toLowerCase());
+  const posRatio = firstIdx === -1 ? 1 : (p.textLen ? firstIdx / Math.min(p.textLen, 80000) : 1);
+  add("relevance", "본문 상단(30%) 배치", 2,
+    firstIdx !== -1 && posRatio <= 0.3 ? "pass" : (firstIdx !== -1 && posRatio <= 0.6 ? "warn" : "fail"),
+    firstIdx === -1 ? "본문에서 키워드 미발견" : `첫 등장 위치: 본문의 약 ${Math.round(posRatio * 100)}% 지점`,
+    `"${kw}"에 대한 내용을 페이지 상단으로 올리세요. AI Overview 인용의 55%가 상위 30% 콘텐츠에서 나옵니다.`);
+  add("relevance", "메타 설명·OG에 키워드", 1,
+    kwIn(p.metaDesc, kw) || kwIn(p.ogTitle, kw) || kwIn(p.ogDesc, kw) ? "pass" : "fail",
+    kwIn(p.metaDesc, kw) ? "메타 설명에 포함" : "메타·OG에 없음",
+    `메타 디스크립션과 og:title에도 "${kw}"를 포함하세요.`);
+
+  /* 답변 적합성 */
+  const defRegex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*") + "\\s*(는|은|이란|란|이|가)?\\s*[^.!?다]{2,80}(이다|입니다|합니다|됩니다|다)\\s*[.!?]?", "i");
+  const hasDef = defRegex.test(p.text);
+  add("answer", "정의형 답변 문장", 3,
+    hasDef ? "pass" : "fail",
+    hasDef ? "정의형 문장 발견" : `"${kw}는 ~이다" 형태의 직접 답변 문장 없음`,
+    `"${kw}는(란) ~입니다"처럼 질문에 바로 답하는 정의형 문장을 도입부에 넣으세요. AI가 추출하기 가장 좋은 형태입니다.`);
+  const qHead = p.questionHeadTexts.some(t => kwIn(t, kw) > 0);
+  add("answer", "질문형 헤딩 매칭", 2,
+    qHead ? "pass" : (p.questionHeadTexts.length ? "warn" : "fail"),
+    qHead ? "키워드 포함 질문형 헤딩 있음" : `질문형 헤딩 ${p.questionHeadTexts.length}개, 키워드 매칭 없음`,
+    `"${kw}란 무엇인가?", "${kw} 어떻게 준비하나?" 같은 실제 검색 질문 형태의 소제목을 추가하세요.`);
+  const kwPara = p.paras.find(t => kwIn(t, kw) > 0 && t.length >= 80 && t.length <= 600);
+  add("answer", "자기완결적 답변 문단", 2,
+    kwPara ? "pass" : (p.paras.some(t => kwIn(t, kw) > 0) ? "warn" : "fail"),
+    kwPara ? `발견: "${kwPara.slice(0, 60)}..."` : "키워드를 다루는 적정 길이(80~600자) 문단 없음",
+    `"${kw}"에 대한 주장+근거+개체명을 담은 80~600자 문단을 만드세요. AI는 문단 조각 단위로 인용합니다.`);
+  const faqKw = p.hasFaqSchema && kwIn(p.ldRaw, kw) > 0;
+  add("answer", "FAQ 스키마에 키워드", 2,
+    faqKw ? "pass" : (p.hasFaqSchema ? "warn" : "fail"),
+    faqKw ? "FAQ/HowTo 스키마에 키워드 포함" : (p.hasFaqSchema ? "FAQ 스키마는 있으나 키워드 없음" : "FAQ/HowTo 스키마 없음"),
+    `"${kw}" 관련 질문-답변을 FAQPage 스키마(JSON-LD)로 추가하세요. 구조화 마크업은 AI 인용 확률을 약 21.6% 높입니다.`);
+  add("answer", "목록·표 활용", 1,
+    p.listsTables >= 3 ? "pass" : (p.listsTables >= 1 ? "warn" : "fail"),
+    `목록·표 ${p.listsTables}개`,
+    `"${kw}" 관련 정보를 목록·표로 구조화하면 AI 답변에 그대로 재사용되기 쉽습니다.`);
+
+  /* 근거·신뢰 */
+  add("evidence", "통계·수치", 2,
+    p.statCount >= 5 ? "pass" : (p.statCount >= 2 ? "warn" : "fail"),
+    `수치 표현 약 ${p.statCount}건`,
+    `"${kw}" 관련 구체적 수치(비율, 비용, 기간 등)를 추가하세요. GEO 논문 기준 가시성 +30~40% 요인입니다.`);
+  add("evidence", "외부 출처 인용", 2,
+    p.externalCount >= 3 ? "pass" : (p.externalCount >= 1 ? "warn" : "fail"),
+    `외부 링크 ${p.externalCount}개`,
+    "신뢰할 수 있는 출처 링크를 3개 이상 추가하세요.");
+  add("evidence", "인용문", 1,
+    p.quotations >= 1 ? "pass" : "fail",
+    `인용 요소 ${p.quotations}개`,
+    "전문가·기관 인용문을 blockquote로 추가하세요.");
+  add("evidence", "작성자 정보", 1,
+    p.hasAuthor ? "pass" : "fail",
+    p.hasAuthor ? "있음" : "없음",
+    "작성자 이름·직함을 표기하세요. AI는 신뢰 가능한 출처를 우선 인용합니다.");
+  add("evidence", "발행·수정일", 1,
+    p.hasDate ? "pass" : "fail",
+    p.hasDate ? "있음" : "없음",
+    "발행일/수정일 메타를 추가하고 최신으로 유지하세요.");
+
+  /* 검색 자격 */
+  add("eligibility", "색인 허용", 3,
+    p.noindex ? "fail" : "pass",
+    p.noindex ? "noindex 설정됨" : "색인 가능",
+    "noindex를 제거하지 않으면 이 페이지는 어떤 키워드로도 노출될 수 없습니다.");
+  const robotsOk = extras && extras.robots !== null && extras.robots !== undefined;
+  add("eligibility", "AI 크롤러 허용", 2,
+    !robotsOk ? "info" : (extras.aiBlocked && extras.aiBlocked.length ? "fail" : "pass"),
+    !robotsOk ? "확인 불가" : (extras.aiBlocked && extras.aiBlocked.length ? "차단: " + extras.aiBlocked.join(", ") : "차단 없음"),
+    "robots.txt에서 GPTBot 등 AI 크롤러 차단을 해제하세요.");
+  add("eligibility", "정적 HTML 콘텐츠", 2,
+    p.textLen >= 500 ? "pass" : (p.allScripts >= 10 ? "fail" : "warn"),
+    `본문 ${p.textLen.toLocaleString()}자`,
+    "핵심 콘텐츠를 순수 HTML로 제공하세요. AI 크롤러는 JS를 실행하지 않습니다.");
+  add("eligibility", "구조화 데이터", 1,
+    p.ldTypes.length ? "pass" : "fail",
+    p.ldTypes.length ? p.ldTypes.slice(0, 4).join(", ") : "없음",
+    "JSON-LD 스키마를 추가하세요.");
+  add("eligibility", "HTTPS", 1,
+    p.https ? "pass" : "fail", p.https ? "적용됨" : "미적용",
+    "HTTPS를 적용하세요.");
+
+  const axisScore = axis => {
+    const list = C.filter(c => c.axis === axis && c.status !== "info");
+    const max = list.reduce((s, c) => s + c.weight, 0);
+    const got = list.reduce((s, c) => s + c.weight * VAL[c.status], 0);
+    return max ? Math.round(got / max * 100) : 0;
+  };
+  const scores = {
+    relevance: axisScore("relevance"),
+    answer: axisScore("answer"),
+    evidence: axisScore("evidence"),
+    eligibility: axisScore("eligibility")
+  };
+  scores.total = Math.round(scores.relevance * 0.3 + scores.answer * 0.3 + scores.evidence * 0.2 + scores.eligibility * 0.2);
+
+  return { url: result.url, title: result.title, keyword: kw, scores, checks: C };
+}
+
+module.exports = { analyze, scoreAxis, scoreKeyword, AXES, KW_AXES };
