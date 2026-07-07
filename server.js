@@ -280,7 +280,9 @@ const server = http.createServer((req, res) => {
   if (u.pathname === "/api/crawl") return handleCrawl(req, res, u.searchParams);
   if (u.pathname === "/api/keyword-analyze") return handleKeywordAnalyze(req, res, u.searchParams);
   if (u.pathname === "/" || u.pathname === "/index.html") {
-    const f = path.join(__dirname, "public", "index.html");
+    const f = fs.existsSync(path.join(__dirname, "index.html"))
+      ? path.join(__dirname, "index.html")
+      : path.join(__dirname, "public", "index.html");
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     return fs.createReadStream(f).pipe(res);
   }
