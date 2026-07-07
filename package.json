@@ -1,0 +1,8 @@
+{
+  "name": "seo-geo-site-analyzer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "jsdom": "^24.0.0" },
+  "engines": { "node": ">=18" }
+}

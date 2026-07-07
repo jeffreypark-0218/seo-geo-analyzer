@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SEO/GEO 사이트 전체 분석기</title>
+<style>
+  :root {
+    --bg: #f6f7fb; --card: #ffffff; --ink: #1a1d29; --sub: #6b7280;
+    --line: #e5e7eb; --blue: #2563eb; --green: #16a34a; --amber: #d97706;
+    --red: #dc2626; --violet: #7c3aed;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Pretendard", -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.6; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { text-align: center; margin-bottom: 32px; }
+  header h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
+  header h1 span { color: var(--blue); }
+  header p { color: var(--sub); margin-top: 8px; font-size: 15px; }
+  .search-box { display: flex; gap: 10px; max-width: 720px; margin: 0 auto 10px; }
+  .search-box input { flex: 1; padding: 15px 18px; font-size: 16px; border: 2px solid var(--line); border-radius: 12px; outline: none; }
+  .search-box input:focus { border-color: var(--blue); }
+  .search-box button { padding: 15px 26px; font-size: 16px; font-weight: 700; color: #fff; background: var(--blue); border: none; border-radius: 12px; cursor: pointer; white-space: nowrap; }
+  .search-box button:hover { background: #1d4ed8; }
+  .search-box button.stop { background: var(--red); }
+  .note { text-align: center; color: var(--sub); font-size: 13px; margin-bottom: 34px; }
+  .note label { cursor: pointer; }
+
+  #progress { display: none; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px 24px; margin-bottom: 20px; }
+  #progress .row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
+  #progress .bar { height: 8px; background: #edeef2; border-radius: 99px; overflow: hidden; }
+  #progress .bar div { height: 100%; background: var(--blue); width: 0%; transition: width .3s; border-radius: 99px; }
+  #progress .cur { font-size: 12px; color: var(--sub); margin-top: 8px; word-break: break-all; }
+  #error { display: none; max-width: 720px; margin: 0 auto 20px; padding: 16px 20px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; color: var(--red); font-size: 14px; }
+
+  #results { display: none; }
+  .overall { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px 32px; display: flex; align-items: center; gap: 32px; margin-bottom: 20px; flex-wrap: wrap; }
+  .big-ring { position: relative; width: 130px; height: 130px; flex-shrink: 0; border-radius: 50%; }
+  .big-ring .num { position: absolute; inset: 10px; background: var(--card); border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .big-ring .num b { font-size: 34px; font-weight: 800; }
+  .big-ring .num small { font-size: 12px; color: var(--sub); }
+  .overall-info h2 { font-size: 19px; font-weight: 800; word-break: break-all; }
+  .overall-info .grade { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .overall-info .summary { color: var(--sub); font-size: 14px; margin-top: 6px; }
+
+  .axes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .axis-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; text-align: center; }
+  .ring { position: relative; width: 84px; height: 84px; margin: 0 auto 10px; border-radius: 50%; }
+  .ring .num { position: absolute; inset: 8px; background: var(--card); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; }
+  .axis-card h3 { font-size: 15px; font-weight: 700; }
+  .axis-card p { font-size: 12px; color: var(--sub); margin-top: 2px; }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; margin-bottom: 20px; overflow: hidden; }
+  .panel > h2 { padding: 18px 24px 0; font-size: 18px; font-weight: 800; }
+  .panel > .sub { padding: 0 24px 14px; color: var(--sub); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fafbfc; color: var(--sub); font-weight: 700; white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.page-row { cursor: pointer; }
+  tr.page-row:hover { background: #f9fafb; }
+  td.url { max-width: 420px; word-break: break-all; }
+  td.url .t { color: var(--sub); font-size: 12px; }
+  .sc { font-weight: 800; white-space: nowrap; }
+  .sc.g { color: var(--green); } .sc.b { color: var(--blue); } .sc.a { color: var(--amber); } .sc.r { color: var(--red); }
+  tr.detail-row td { background: #fafbfc; padding: 0 12px; }
+  .check { display: flex; gap: 12px; padding: 12px 12px; border-top: 1px solid var(--line); font-size: 13px; }
+  .check .ico { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 800; margin-top: 2px; }
+  .ico.pass { background: var(--green); } .ico.warn { background: var(--amber); } .ico.fail { background: var(--red); } .ico.info { background: #9ca3af; }
+  .check b { font-weight: 700; }
+  .check .badge { font-size: 11px; color: var(--sub); background: #f3f4f6; padding: 1px 8px; border-radius: 99px; }
+  .check .detail { color: var(--sub); font-size: 12px; margin-top: 1px; }
+  .check .advice { font-size: 12px; margin-top: 4px; background: #fff; border-left: 3px solid var(--blue); padding: 5px 10px; border-radius: 0 6px 6px 0; }
+
+  .todo-item { display: flex; gap: 12px; padding: 12px 24px; border-top: 1px solid var(--line); font-size: 14px; align-items: flex-start; cursor: pointer; }
+  .todo-item:hover { background: #fafbfc; }
+  .todo-item .chev { flex-shrink: 0; margin-top: 4px; color: var(--sub); font-size: 11px; transition: transform .15s; }
+  .todo-item.open .chev { transform: rotate(90deg); }
+  .guide { display: none; margin-top: 10px; background: #f9fafb; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-size: 13px; cursor: auto; }
+  .todo-item.open .guide { display: block; }
+  .guide .gtitle { font-weight: 700; margin-bottom: 4px; }
+  .guide ol { margin: 6px 0 8px 20px; }
+  .guide li { margin: 4px 0; }
+  .guide pre { background: #1f2937; color: #e5e7eb; padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.55; margin: 8px 0; }
+  .guide code { background: #eef2ff; color: #3730a3; padding: 0 5px; border-radius: 4px; font-size: 12px; }
+  .guide pre code { background: none; color: inherit; padding: 0; }
+  .guide .gverify { color: var(--sub); font-size: 12px; margin-top: 6px; }
+  .chip { flex-shrink: 0; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 99px; margin-top: 2px; }
+  .chip.high { background: #fef2f2; color: var(--red); }
+  .chip.mid { background: #fffbeb; color: var(--amber); }
+  .chip.low { background: #eff6ff; color: var(--blue); }
+  .todo-item .cnt { color: var(--sub); font-size: 12px; }
+  .todo-item .ad { color: var(--sub); font-size: 13px; }
+  .errors { padding: 10px 24px 18px; font-size: 12px; color: var(--sub); word-break: break-all; }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SEO<span>/</span>GEO 사이트 전체 분석기</h1>
+    <p>메인 주소만 입력하면 사이트맵과 내부 링크를 따라 모든 페이지를 점검합니다 (페이지 수 제한 없음)</p>
+  </header>
+
+  <div class="search-box">
+    <input id="url" type="text" placeholder="https://example.com" spellcheck="false">
+    <button id="go">전체 분석</button>
+  </div>
+  <p class="note"><label><input type="checkbox" id="ignoreQuery" checked> 쿼리스트링(?...)이 다른 URL은 같은 페이지로 취급</label></p>
+
+  <div id="error"></div>
+  <div id="progress">
+    <div class="row">
+      <span><b id="p-analyzed">0</b> 페이지 분석 완료 / 발견 <b id="p-found">0</b> · 대기 <span id="p-queued">0</span> · 오류 <span id="p-failed">0</span></span>
+      <span id="p-elapsed"></span>
+    </div>
+    <div class="bar"><div id="p-bar"></div></div>
+    <div class="cur" id="p-cur"></div>
+  </div>
+
+  <div id="results">
+    <div class="overall">
+      <div class="big-ring" id="ring-total"><div class="num"><b id="score-total">0</b><small>/ 100</small></div></div>
+      <div class="overall-info">
+        <h2 id="target-url"></h2>
+        <div class="grade" id="grade"></div>
+        <div class="summary" id="summary"></div>
+      </div>
+    </div>
+    <div class="axes" id="axes"></div>
+
+    <div class="panel">
+      <h2>보완·추가 제안 (사이트 공통)</h2>
+      <div class="sub">여러 페이지에서 반복되는 문제를 영향도·발생 페이지 수 순으로 정렬했습니다. 항목을 클릭하면 적용 단계·코드 예시·확인 방법이 담긴 상세 가이드가 열립니다.</div>
+      <div id="todo"></div>
+    </div>
+
+    <div class="panel">
+      <h2>페이지별 점수</h2>
+      <div class="sub">점수가 낮은 페이지부터 표시됩니다. 행을 클릭하면 해당 페이지의 상세 진단이 열립니다.</div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>페이지</th><th>구글</th><th>네이버</th><th>AI(GEO)</th><th>기술</th><th>종합</th></tr></thead>
+        <tbody id="page-rows"></tbody>
+      </table>
+      </div>
+      <div class="errors" id="err-list"></div>
+    </div>
+  </div>
+
+  <footer>
+    <b>채점 근거 문서</b><br>
+    Aggarwal, Murahari et al., "GEO: Generative Engine Optimization" (arXiv:2311.09735 / ICLR 제출본) — 인용·인용문·통계 추가 +30~40%, 유창성·가독성 +15~30%, 키워드 스터핑은 효과 없음<br>
+    OtterlyAI, "Generative Engine Optimization Guide" — Schema.org(JSON-LD), AI 크롤러 robots.txt, JS 렌더링 한계, llms.txt 실효성<br>
+    Sean Pan (Context Institute), "GEO: The Architecture of Visibility" (SSRN 6546718) — Query Coverage, Retrieval Eligibility, Fragment Quality, Citation Reliability 등 6대 프리미티브<br>
+    구글 검색 센터 가이드라인 · 네이버 서치어드바이저 / C-Rank / D.I.A<br><br>
+    백링크, 브랜드 언급량(Wikipedia·Reddit·PR), 실제 페이지 속도(Core Web Vitals) 등 외부 데이터가 필요한 항목은 점수에 포함되지 않습니다.
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const AXES = {
+  google: { name: "구글 SEO", desc: "Google 검색 센터 기준", color: "#4285f4" },
+  naver:  { name: "네이버 SEO", desc: "서치어드바이저·C-Rank·D.I.A", color: "#03c75a" },
+  geo:    { name: "AI 검색 (GEO)", desc: "ChatGPT·AI Overview 인용 최적화", color: "#7c3aed" },
+  tech:   { name: "기술 기반", desc: "크롤링·렌더링·모바일", color: "#f59e0b" }
+};
+
+let es = null, pages = [], errors = [], startTime = 0, timer = null;
+
+/* 항목별 상세 실행 가이드 (키: axis|label) */
+const GUIDES = {
+"google|타이틀 태그": { steps: ["모든 페이지의 <code>&lt;head&gt;</code>에 고유한 <code>&lt;title&gt;</code>을 넣습니다. 핵심 키워드를 맨 앞에, 브랜드명은 맨 뒤에 배치합니다.", "길이는 20~60자로 유지합니다. 60자를 넘으면 구글 검색결과에서 잘립니다.", "같은 제목을 여러 페이지에 재사용하지 않습니다. 중복 제목은 중복 콘텐츠 신호가 됩니다."], code: '<title>강남 치과 임플란트 비용과 과정 안내 | 서울미소치과</title>', verify: "구글에서 site:내도메인 으로 검색해 각 페이지 제목이 의도대로 표시되는지 확인" },
+"google|메타 디스크립션": { steps: ["각 페이지 <code>&lt;head&gt;</code>에 그 페이지 내용을 요약한 70~160자 문구를 넣습니다.", "사용자가 클릭할 이유(혜택·답·행동 유도)를 담습니다.", "워드프레스는 Yoast SEO / RankMath 플러그인으로 페이지별 일괄 관리할 수 있습니다."], code: '<meta name="description" content="임플란트 비용은 재료·식립 개수에 따라 80만~250만원입니다. 단계별 과정과 보험 적용 기준, 병원 선택 체크리스트까지 정리했습니다.">', verify: "구글/네이버 검색결과에서 요약문이 작성한 문구로 나오는지 확인" },
+"google|H1 헤딩": { steps: ["페이지의 핵심 주제를 담은 <code>&lt;h1&gt;</code>을 정확히 1개 넣습니다.", "H1이 여러 개라면 가장 중요한 것 하나만 남기고 나머지는 <code>&lt;h2&gt;</code>로 바꿉니다.", "로고나 사이트명이 H1으로 되어 있는 경우가 많습니다. 로고는 <code>&lt;div&gt;</code>나 <code>&lt;p&gt;</code>로 바꾸세요."], code: '<h1>임플란트 비용, 2026년 기준 총정리</h1>', verify: "페이지 소스보기(Ctrl+U)에서 <h1 검색 시 1개만 나와야 함" },
+"google|헤딩 계층 구조": { steps: ["문서 개요를 잡듯 H1(제목) → H2(대주제) → H3(소주제) 순서로만 내려갑니다. H2 없이 H1에서 H3으로 건너뛰지 않습니다.", "글자를 크게 보이려는 목적으로 헤딩을 쓰지 말고 CSS(font-size)를 사용합니다."], code: '<h1>제목</h1>\n  <h2>1장</h2>\n    <h3>1-1절</h3>\n  <h2>2장</h2>', verify: "브라우저 확장(HeadingsMap 등)으로 목차 트리가 자연스러운지 확인" },
+"google|캐노니컬 URL": { steps: ["모든 페이지 <code>&lt;head&gt;</code>에 그 페이지의 대표 URL을 선언합니다.", "www/비www, http/https, 파라미터 붙은 URL이 섞여 있다면 하나의 대표 URL로 통일해 지정합니다.", "CMS를 쓰면 SEO 플러그인이 자동 생성해 줍니다."], code: '<link rel="canonical" href="https://example.com/blog/implant-cost">', verify: "파라미터가 붙은 URL(?utm_...)로 접속해도 canonical이 원본을 가리키는지 소스에서 확인" },
+"google|이미지 대체 텍스트": { steps: ["내용이 있는 모든 이미지에 그 내용을 설명하는 alt를 씁니다. 키워드 나열이 아니라 자연스러운 설명문으로 씁니다.", "장식용 이미지는 <code>alt=\"\"</code>(빈 값)로 두어 스크린리더가 건너뛰게 합니다."], code: '<img src="implant-xray.jpg" alt="임플란트 식립 후 정면 엑스레이 사진">', verify: "이 도구를 다시 실행해 alt 비율이 80% 이상인지 확인" },
+"google|색인 허용 (noindex 없음)": { steps: ["페이지 <code>&lt;head&gt;</code>에서 <code>noindex</code>가 포함된 robots 메타를 찾아 제거합니다.", "워드프레스는 설정 → 읽기 → '검색 엔진이 이 사이트를 검색하는 것을 차단' 체크가 해제되어 있는지 확인합니다.", "개발/스테이징 서버 설정이 운영에 그대로 배포된 경우가 흔합니다."], code: '<!-- 이 줄을 삭제 -->\n<meta name="robots" content="noindex, nofollow">', verify: "구글 서치콘솔 URL 검사에서 '색인 생성 가능' 판정 확인" },
+"google|언어 선언 (lang)": { steps: ["<code>&lt;html&gt;</code> 태그에 페이지 언어를 선언합니다. 한국어 사이트는 ko를 사용합니다."], code: '<html lang="ko">', verify: "페이지 소스 첫 줄 <html> 태그에 lang 속성 존재 확인" },
+"google|구조화 데이터 (JSON-LD)": { steps: ["사이트 공통으로 Organization(회사) 스키마를, 글에는 Article 스키마를 <code>&lt;head&gt;</code>에 추가합니다.", "빵부스러기 내비게이션이 있다면 BreadcrumbList도 추가합니다.", "직접 작성이 어려우면 CMS SEO 플러그인이나 스키마 생성기(technicalseo.com/tools/schema-markup-generator)를 사용합니다."], code: '<script type="application/ld+json">\n{\n  "@context": "https://schema.org",\n  "@type": "Organization",\n  "name": "서울미소치과",\n  "url": "https://example.com",\n  "logo": "https://example.com/logo.png",\n  "telephone": "+82-2-1234-5678"\n}\n<\/script>', verify: "구글 리치 결과 테스트(search.google.com/test/rich-results)에 URL 입력" },
+"google|내부 링크": { steps: ["본문 안에서 관련 있는 자사 페이지로 3~5개 링크를 겁니다.", "앵커 텍스트는 '여기 클릭'이 아니라 대상 페이지의 주제어로 씁니다.", "어떤 페이지에서도 링크되지 않는 '고아 페이지'가 없도록 합니다."], code: '자세한 비용 기준은 <a href="/implant-cost">임플란트 비용 안내</a>에서 확인하세요.', verify: "이 도구의 페이지별 상세에서 내부 링크 5개 이상인지 확인" },
+"google|robots.txt / 사이트맵": { steps: ["사이트 루트에 robots.txt 파일을 만들고 사이트맵 위치를 선언합니다.", "sitemap.xml은 CMS 플러그인(Yoast 등)이 자동 생성하거나, 정적 사이트는 xml-sitemaps.com에서 생성합니다.", "구글 서치콘솔과 네이버 서치어드바이저 양쪽에 사이트맵을 제출합니다."], code: '# https://example.com/robots.txt\nUser-agent: *\nAllow: /\n\nSitemap: https://example.com/sitemap.xml', verify: "브라우저에서 내도메인/robots.txt, 내도메인/sitemap.xml 직접 접속해 열리는지 확인" },
+"google|콘텐츠 분량": { steps: ["페이지 주제의 하위 질문(비용, 과정, 기간, 주의사항, FAQ 등)을 목차로 만들어 빠짐없이 다룹니다.", "내용이 얇은 비슷한 페이지 여러 개는 하나의 깊이 있는 페이지로 통합하고 301 리다이렉트합니다.", "본문 1,500자 이상을 권장하되 분량 채우기용 반복 문장은 오히려 감점 요인입니다."], verify: "이 도구 재실행 시 본문 분량 1,500자 이상" },
+"naver|타이틀 길이 (네이버 표시 기준)": { steps: ["네이버 검색결과는 제목을 더 짧게 자릅니다. 핵심 키워드를 포함해 35자 이내로 씁니다.", "가장 중요한 검색어를 제목 맨 앞에 둡니다."], code: '<title>임플란트 비용 총정리 (2026년 기준) | 서울미소치과</title>', verify: "네이버에서 사이트 검색 후 제목이 잘리지 않는지 확인" },
+"naver|메타 디스크립션": { steps: ["네이버는 description을 검색결과 요약으로 그대로 노출하는 비중이 높습니다. 페이지마다 고유하게 작성합니다.", "네이버 서치어드바이저 → 검증 → 웹페이지 최적화에서 누락 여부를 페이지별로 진단할 수 있습니다."], code: '<meta name="description" content="페이지 내용을 정확히 반영한 고유 요약문을 작성합니다.">', verify: "서치어드바이저 웹페이지 최적화 진단에서 '설명 누락' 항목 0건" },
+"naver|og:title": { steps: ["오픈그래프 3종(og:title, og:description, og:image)을 모든 페이지에 넣습니다. 네이버는 검색·공유 모두에 OG 태그를 적극 활용합니다."], code: '<meta property="og:title" content="임플란트 비용 총정리 (2026년)">\n<meta property="og:description" content="재료별 비용과 보험 기준 정리">\n<meta property="og:image" content="https://example.com/og-implant.jpg">\n<meta property="og:url" content="https://example.com/implant-cost">', verify: "카카오톡/네이버 블로그에 URL 붙여넣기 시 미리보기 카드 정상 표시" },
+"naver|og:description": { steps: ["og:title 가이드와 함께 적용합니다. og:description은 공유 카드에 표시될 1~2문장 요약으로 작성합니다."], code: '<meta property="og:description" content="재료별 비용, 보험 적용 기준, 병원 선택 체크리스트 정리">', verify: "카카오톡에 URL 공유 시 설명 문구 표시 확인" },
+"naver|og:image": { steps: ["공유 썸네일 이미지를 1200x630px(비율 1.91:1)로 제작해 절대 URL로 지정합니다.", "이미지가 없으면 네이버·카카오 공유 시 빈 카드로 노출되어 클릭률이 크게 떨어집니다."], code: '<meta property="og:image" content="https://example.com/images/og-main.jpg">\n<meta property="og:image:width" content="1200">\n<meta property="og:image:height" content="630">', verify: "developers.facebook.com/tools/debug 또는 카카오톡 공유로 썸네일 확인" },
+"naver|H1 중복 없음": { steps: ["네이버 서치어드바이저는 H1 중복을 '오류'로 진단합니다. 페이지당 H1을 1개로 정리합니다.", "구글 SEO의 'H1 헤딩' 가이드와 동일하게 처리하면 됩니다."], verify: "서치어드바이저 → 웹페이지 최적화에서 H1 오류 0건" },
+"naver|서치어드바이저 소유 확인": { steps: ["searchadvisor.naver.com 접속 → 네이버 로그인 → '웹마스터 도구' → 사이트 등록", "'HTML 태그' 인증 방식을 선택하면 아래와 같은 메타 태그가 발급됩니다. 이를 모든 페이지 <code>&lt;head&gt;</code>에 추가합니다.", "인증 완료 후 요청 → 사이트맵 제출에서 sitemap.xml을, RSS가 있다면 RSS도 제출합니다.", "요청 → 웹페이지 수집에서 주요 페이지 URL의 수집을 직접 요청합니다."], code: '<meta name="naver-site-verification" content="발급받은코드">', verify: "서치어드바이저 대시보드에 사이트가 '소유확인 완료'로 표시" },
+"naver|콘텐츠 충실성 (D.I.A.)": { steps: ["네이버 D.I.A.는 주제를 얼마나 빠짐없이 다루는지(포괄성)와 체류 시간을 봅니다. 본문 2,000자 이상을 목표로 합니다.", "직접 경험(사진, 비용 영수증, 과정 후기 등) 기반 정보를 포함하면 D.I.A+ 가산점에 유리합니다.", "같은 주제군의 글을 꾸준히 누적하면 출처 신뢰도(C-Rank)가 함께 올라갑니다."], verify: "이 도구 재실행 시 본문 2,000자 이상" },
+"naver|제목-본문 일관성": { steps: ["제목에 넣은 핵심 키워드가 본문 소제목과 문단에 자연스럽게 다시 등장해야 합니다.", "제목은 자극적인데 본문이 다른 얘기면 C-Rank 신뢰도가 깎입니다. 제목이 약속한 내용을 본문이 실제로 다루는지 검토합니다."], verify: "제목의 핵심 단어 각각을 본문에서 Ctrl+F로 검색해 등장 확인" },
+"naver|최신성 신호": { steps: ["발행일·수정일 메타 태그를 추가하고, 내용을 갱신할 때마다 수정일을 업데이트합니다.", "본문 상단에 눈에 보이는 '최종 수정: 2026년 7월' 표기도 함께 넣습니다."], code: '<meta property="article:published_time" content="2026-01-15T09:00:00+09:00">\n<meta property="article:modified_time" content="2026-07-07T09:00:00+09:00">', verify: "페이지 소스에서 article:modified_time 존재 확인" },
+"geo|출처 인용 (Cite Sources)": { steps: ["본문의 주요 주장마다 신뢰할 수 있는 외부 출처(정부 통계, 논문, 공식 문서, 주요 언론)로 링크를 겁니다.", "페이지당 3~6개가 자연스럽습니다. GEO 논문에서 인용 추가는 AI 응답 가시성을 최대 40% 높인 최상위 기법입니다.", "앵커 텍스트에 출처명을 씁니다. 예: '보건복지부 2026년 통계에 따르면'"], code: '<a href="https://www.mohw.go.kr/...">보건복지부 2026년 의료비 실태조사</a>에 따르면\n임플란트 평균 비용은 132만원입니다.', verify: "이 도구 페이지별 상세에서 외부 링크 3개 이상" },
+"geo|통계·수치 포함 (Statistics Addition)": { steps: ["정성적 표현을 정량 표현으로 바꿉니다. '많은 환자가' → '환자의 68%가', '오래 걸린다' → '평균 3~6개월'", "수치에는 기준 연도와 출처를 함께 적습니다.", "GEO 논문에서 통계 추가는 인용 추가와 함께 가시성 30~40% 향상 효과가 확인된 기법입니다."], verify: "본문에 수치+단위 표현 5건 이상" },
+"geo|인용문 사용 (Quotation Addition)": { steps: ["전문가·기관의 발언을 직접 인용문으로 넣고 <code>&lt;blockquote&gt;</code>로 마크업합니다.", "인용문은 출처(<code>&lt;cite&gt;</code>)와 함께 표기하고, 원문 의미를 왜곡하지 않아야 합니다."], code: '<blockquote>\n  "임플란트 수명은 관리에 따라 10년 이상 차이가 납니다."\n  <cite>— 대한치과의사협회, 2026</cite>\n</blockquote>', verify: "페이지에 blockquote 요소 2개 이상" },
+"geo|유창성·가독성 (Fluency / Easy-to-Understand)": { steps: ["한 문장은 150자 이내로, 한 문단은 하나의 생각만 담습니다.", "전문용어 첫 등장 시 짧은 설명을 붙입니다. 예: '오스테오톰(잇몸뼈를 넓히는 기구)'", "수동태·이중부정을 능동태·긍정문으로 바꿉니다. GEO 논문에서 가독성 개선만으로 가시성이 15~30% 상승했습니다."], verify: "이 도구 재실행 시 평균 문장 길이 150자 이하" },
+"geo|키워드 스터핑 없음": { steps: ["같은 키워드의 기계적 반복을 줄이고 동의어·자연스러운 문장으로 바꿉니다.", "GEO 논문 실험에서 키워드 스터핑은 AI 검색 가시성에 효과가 없거나 역효과였습니다. 사람에게 읽히는 글이 기준입니다."], verify: "최다 반복 단어 비율 5% 이하" },
+"geo|AI 크롤러 접근 허용 (robots.txt)": { steps: ["robots.txt에서 AI 크롤러(GPTBot, PerplexityBot, ClaudeBot, Google-Extended 등)를 차단하는 블록을 찾아 제거하거나 Allow로 바꿉니다.", "차단하면 ChatGPT·Perplexity 등이 사이트를 읽지 못해 AI 답변에 인용될 수 없습니다.", "저작권 보호가 필요한 특정 경로만 선별 차단하는 방식을 권장합니다."], code: '# 전체 차단(제거 대상)\n# User-agent: GPTBot\n# Disallow: /\n\n# 권장: 허용 + 민감 경로만 차단\nUser-agent: GPTBot\nAllow: /\nDisallow: /members/', verify: "내도메인/robots.txt에서 AI 봇 User-agent에 Disallow: / 가 없는지 확인" },
+"geo|정적 HTML 콘텐츠 (JS 의존도)": { steps: ["페이지 소스보기(Ctrl+U)에서 본문 텍스트가 보이는지 확인합니다. 안 보이면 콘텐츠가 JavaScript로만 렌더링되는 상태입니다.", "AI 크롤러는 JS를 실행하지 않으므로, React/Vue 사이트는 SSR(Next.js, Nuxt) 또는 프리렌더링(prerender.io, 정적 빌드)으로 전환합니다.", "최소한 핵심 콘텐츠(제목, 본문, 상품 정보)만이라도 초기 HTML에 포함시킵니다."], verify: "소스보기에서 본문 문장이 그대로 검색되면 통과" },
+"geo|핵심 스키마 마크업 (JSON-LD)": { steps: ["콘텐츠 유형에 맞는 스키마를 추가합니다: 회사 소개 → Organization, 글 → Article, 상품 → Product, 자주 묻는 질문 → FAQPage", "FAQ 스키마는 AI가 질문-답변 쌍을 그대로 추출하기 가장 좋은 형태입니다."], code: '<script type="application/ld+json">\n{\n  "@context": "https://schema.org",\n  "@type": "FAQPage",\n  "mainEntity": [{\n    "@type": "Question",\n    "name": "임플란트 비용은 얼마인가요?",\n    "acceptedAnswer": {\n      "@type": "Answer",\n      "text": "재료와 개수에 따라 80만~250만원입니다."\n    }\n  }]\n}\n<\/script>', verify: "validator.schema.org에 URL 입력해 오류 0건" },
+"geo|프래그먼트 품질 (자기완결적 문단)": { steps: ["AI는 페이지 전체가 아니라 문단 조각을 추출해 인용합니다. 각 문단이 따로 읽혀도 이해되도록 씁니다.", "문단 공식: 명확한 주장 1개 + 근거(수치/출처) + 구체적 개체명(회사·제품·지역명). '이것', '그 방법' 같은 지시어만 있으면 조각으로 쓸 수 없습니다.", "문단 길이는 80~600자 사이가 적당합니다."], verify: "아무 문단이나 하나 복사해 다른 사람에게 보여줬을 때 맥락 없이 이해되면 통과" },
+"geo|주제 포괄성 (Query Coverage)": { steps: ["AI는 질문 하나를 여러 하위 질문으로 확장(fan-out)해 검색합니다. 핵심 질문의 인접 질문들을 H2/H3로 함께 다룹니다.", "하위 질문 찾는 법: 구글 자동완성, '함께 찾는 질문(People also ask)', 네이버 연관검색어를 참고합니다.", "예: '임플란트 비용' → 보험 적용 기준, 재료별 차이, 지역별 시세, 분할 납부, 부작용 비용까지."], verify: "H2/H3 소제목 5개 이상, 질문형 소제목 포함" },
+"geo|답변 우선 구조 (정의형 도입부)": { steps: ["첫 문단에서 핵심 질문에 바로 답합니다. 배경 설명은 그 다음입니다.", "정의형 문장으로 시작합니다: 'X란 ~이다', 'X 비용은 평균 ~원이다'", "GEO 연구 기준, AI 요약 단계에서 문서 첫 150~200토큰의 비중이 가장 큽니다. 결론을 상단에 두세요."], code: '<!-- 좋은 첫 문단 -->\n<p>임플란트 비용은 2026년 기준 개당 평균 132만원이며,\n재료와 지역에 따라 80만~250만원까지 차이가 납니다.\n아래에서 항목별 기준을 설명합니다.</p>', verify: "첫 문단만 읽고도 검색 질문에 답이 되는지 확인" },
+"geo|작성자·신뢰 신호 (Citation Reliability)": { steps: ["글 상단 또는 하단에 작성자 이름·직함·소개를 표기합니다.", "author 메타 태그와 스키마의 author 속성을 함께 넣습니다.", "발행일·수정일을 함께 표기합니다. AI는 신뢰할 수 있고 안정적으로 보이는 출처를 인용 대상으로 우선합니다."], code: '<meta name="author" content="김민수 치과전문의">\n<!-- Article 스키마 안에 -->\n"author": { "@type": "Person", "name": "김민수", "jobTitle": "치과전문의" },\n"datePublished": "2026-01-15",\n"dateModified": "2026-07-07"', verify: "페이지에서 작성자명과 날짜가 눈에 보이는지 확인" },
+"geo|목록·표 활용": { steps: ["비교 정보는 표(<code>&lt;table&gt;</code>)로, 단계·조건은 목록(<code>&lt;ol&gt;/&lt;ul&gt;</code>)으로 구조화합니다.", "구조화된 블록은 AI의 조각 선택에서 살아남을 확률이 높고, 답변에 그대로 재사용되기 쉽습니다."], code: '<table>\n  <tr><th>재료</th><th>비용</th><th>수명</th></tr>\n  <tr><td>국산</td><td>80~120만원</td><td>10년+</td></tr>\n  <tr><td>수입</td><td>150~250만원</td><td>15년+</td></tr>\n</table>', verify: "페이지에 목록+표 합계 3개 이상" },
+"geo|시맨틱 HTML": { steps: ["페이지 구조를 시맨틱 태그로 감쌉니다: 본문 전체 <code>&lt;main&gt;</code>, 글 단위 <code>&lt;article&gt;</code>, 주제 구획 <code>&lt;section&gt;</code>, 머리말/꼬리말 <code>&lt;header&gt;/&lt;footer&gt;</code>", "<code>&lt;div&gt;</code>만으로 짠 구조는 AI 파서가 본문과 부가 요소를 구분하기 어렵습니다."], code: '<body>\n  <header>로고·메뉴</header>\n  <main>\n    <article>\n      <h1>제목</h1>\n      <section>본문 구획</section>\n    </article>\n  </main>\n  <footer>회사 정보</footer>\n</body>', verify: "소스에서 main, article, section 태그 존재 확인" },
+"tech|HTTPS": { steps: ["호스팅/CDN에서 SSL 인증서를 활성화합니다. Let's Encrypt는 무료이며 대부분의 호스팅이 원클릭 지원합니다.", "http:// 접속을 https://로 301 리다이렉트합니다.", "인증서 적용 후 사이트 내 http:// 하드코딩 링크(이미지, CSS)도 https로 바꿔 혼합 콘텐츠 경고를 없앱니다."], verify: "브라우저 주소창에 자물쇠 표시, http:// 접속 시 https로 자동 이동" },
+"tech|모바일 뷰포트": { steps: ["<code>&lt;head&gt;</code>에 viewport 메타를 추가합니다. 모바일 우선 색인의 기본 요건입니다."], code: '<meta name="viewport" content="width=device-width, initial-scale=1">', verify: "휴대폰에서 접속 시 좌우 스크롤 없이 화면에 맞게 표시" },
+"tech|문자 인코딩": { steps: ["<code>&lt;head&gt;</code> 맨 첫 줄에 UTF-8 인코딩을 선언합니다. 없으면 한글이 깨질 수 있습니다."], code: '<meta charset="UTF-8">', verify: "페이지 소스 head 최상단에 존재 확인" },
+"tech|DOCTYPE": { steps: ["HTML 파일 맨 첫 줄에 HTML5 doctype을 선언합니다. 없으면 브라우저가 호환 모드로 렌더링해 표시가 어긋날 수 있습니다."], code: '<!DOCTYPE html>', verify: "소스 첫 줄 확인" },
+"tech|파비콘": { steps: ["32x32px 아이콘(.ico 또는 .png)을 만들어 루트에 올리고 링크합니다.", "favicon.io 같은 무료 생성기로 로고에서 바로 만들 수 있습니다."], code: '<link rel="icon" href="/favicon.ico" sizes="32x32">\n<link rel="apple-touch-icon" href="/apple-touch-icon.png">', verify: "브라우저 탭과 구글 검색결과에 아이콘 표시" },
+"tech|HTML 문서 크기": { steps: ["인라인으로 박힌 대용량 CSS/JS를 외부 파일로 분리합니다.", "서버에서 gzip 또는 brotli 압축을 활성화합니다(대부분의 호스팅 기본 지원).", "본문과 무관한 대형 SVG, base64 이미지, 주석 덩어리를 제거합니다."], verify: "이 도구 재실행 시 150KB 이하" },
+"tech|렌더링 차단 스크립트": { steps: ["<code>&lt;head&gt;</code> 안의 외부 스크립트에 <code>defer</code>(순서 유지) 또는 <code>async</code>(독립 실행)를 붙입니다.", "분석 스크립트(GA 등)는 async, DOM을 다루는 스크립트는 defer가 안전합니다."], code: '<script src="/js/main.js" defer><\/script>\n<script src="https://www.googletagmanager.com/gtag/js" async><\/script>', verify: "head 내 동기 스크립트 0개" },
+"tech|이미지 지연 로딩": { steps: ["첫 화면 아래에 나오는 이미지에 <code>loading=\"lazy\"</code>를 추가합니다.", "첫 화면에 바로 보이는 대표 이미지에는 붙이지 않습니다(오히려 늦게 뜸)."], code: '<img src="photo.jpg" alt="설명" loading="lazy">', verify: "스크롤 전 네트워크 탭에서 하단 이미지가 로드되지 않으면 정상" },
+"tech|구식 태그 미사용": { steps: ["<code>&lt;font&gt;</code>, <code>&lt;center&gt;</code>, <code>&lt;marquee&gt;</code> 등을 CSS로 교체합니다.", "예: <code>&lt;center&gt;</code> → <code>style=\"text-align:center\"</code>, <code>&lt;font color&gt;</code> → <code>style=\"color:...\"</code>"], verify: "소스에서 font/center/marquee 검색 시 0건" },
+"tech|트위터 카드 / 공유 메타": { steps: ["트위터(X) 공유 카드용 메타를 추가합니다. og:image와 같은 이미지를 재사용하면 됩니다."], code: '<meta name="twitter:card" content="summary_large_image">\n<meta name="twitter:title" content="페이지 제목">\n<meta name="twitter:image" content="https://example.com/og-main.jpg">', verify: "X(트위터)에 URL 붙여넣기 시 큰 이미지 카드 표시" }
+};
+
+function guideHtml(key) {
+  const g = GUIDES[key];
+  if (!g) return "";
+  return `<div class="guide">
+    <div class="gtitle">이렇게 적용하세요</div>
+    <ol>${g.steps.map(s => `<li>${s}</li>`).join("")}</ol>
+    ${g.code ? `<pre><code>${esc(g.code)}</code></pre>` : ""}
+    ${g.verify ? `<div class="gverify">✔ 적용 확인: ${esc(g.verify)}</div>` : ""}
+  </div>`;
+}
+
+function grade(s) {
+  if (s >= 90) return ["우수", "var(--green)"];
+  if (s >= 70) return ["양호", "var(--blue)"];
+  if (s >= 50) return ["보통", "var(--amber)"];
+  return ["미흡", "var(--red)"];
+}
+function scClass(s) { return s >= 90 ? "g" : s >= 70 ? "b" : s >= 50 ? "a" : "r"; }
+function ring(el, score, color) {
+  el.style.background = `conic-gradient(${color} ${score * 3.6}deg, #edeef2 0deg)`;
+}
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+
+function start() {
+  let input = $("url").value.trim();
+  if (!input) return;
+  pages = []; errors = [];
+  $("error").style.display = "none";
+  $("results").style.display = "none";
+  $("progress").style.display = "block";
+  $("p-cur").textContent = "사이트맵 수집 중...";
+  $("go").textContent = "중지"; $("go").classList.add("stop");
+  startTime = Date.now();
+  timer = setInterval(() => { $("p-elapsed").textContent = Math.round((Date.now() - startTime) / 1000) + "초 경과"; }, 1000);
+
+  es = new EventSource("/api/crawl?url=" + encodeURIComponent(input) + "&ignoreQuery=" + ($("ignoreQuery").checked ? "1" : "0"));
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.type === "fatal") { showError(d.message); return stop(); }
+    if (d.type === "init") {
+      $("p-cur").textContent = d.sitemapUrls ? `사이트맵에서 URL ${d.sitemapUrls.toLocaleString()}개 발견, 분석 시작...` : "사이트맵 없음 — 내부 링크를 따라 크롤링합니다...";
+    }
+    if (d.type === "page") {
+      pages.push(d);
+      $("p-analyzed").textContent = d.analyzed.toLocaleString();
+      $("p-found").textContent = d.discovered.toLocaleString();
+      $("p-queued").textContent = d.queued.toLocaleString();
+      $("p-bar").style.width = Math.round(d.analyzed / Math.max(1, d.discovered) * 100) + "%";
+      $("p-cur").textContent = "분석: " + d.url;
+    }
+    if (d.type === "pageError") {
+      errors.push(d);
+      $("p-failed").textContent = errors.length;
+    }
+    if (d.type === "done") {
+      stop();
+      $("p-cur").textContent = `완료 — ${d.analyzed.toLocaleString()}개 페이지, ${d.elapsedSec}초 소요`;
+      render();
+    }
+  };
+  es.onerror = () => {
+    if (pages.length) { stop(); render(); }
+    else { showError("서버 연결이 끊어졌습니다. 서버(npm start)가 실행 중인지 확인하세요."); stop(); }
+  };
+}
+
+function stop() {
+  if (es) { es.close(); es = null; }
+  clearInterval(timer);
+  $("go").textContent = "전체 분석"; $("go").classList.remove("stop");
+}
+
+function showError(msg) { $("error").textContent = msg; $("error").style.display = "block"; }
+
+function render() {
+  if (!pages.length) return showError("분석된 페이지가 없습니다. 주소를 확인하세요.");
+  const avg = k => Math.round(pages.reduce((s, p) => s + p.scores[k], 0) / pages.length);
+  const scores = { google: avg("google"), naver: avg("naver"), geo: avg("geo"), tech: avg("tech") };
+  const total = Math.round((scores.google + scores.naver + scores.geo + scores.tech) / 4);
+
+  $("target-url").textContent = $("url").value.trim() + " — 전체 " + pages.length.toLocaleString() + "개 페이지";
+  $("score-total").textContent = total;
+  const [g, gc] = grade(total);
+  $("grade").innerHTML = `종합 등급: <span style="color:${gc}">${g}</span> <span style="color:var(--sub);font-weight:400">(페이지 평균)</span>`;
+  const worstAxis = Object.keys(AXES).sort((a, b) => scores[a] - scores[b])[0];
+  const worstPages = [...pages].sort((a, b) => a.scores.total - b.scores.total).slice(0, 3);
+  $("summary").textContent = `가장 취약한 영역: ${AXES[worstAxis].name} (평균 ${scores[worstAxis]}점) · 최저 점수 페이지: ${worstPages.map(p => p.scores.total + "점").join(", ")}`;
+  const gcv = getComputedStyle(document.documentElement).getPropertyValue(gc.slice(4, -1)) || gc;
+  ring($("ring-total"), total, gcv.trim());
+
+  $("axes").innerHTML = Object.keys(AXES).map(a => `
+    <div class="axis-card">
+      <div class="ring" id="ring-${a}"><div class="num">${scores[a]}</div></div>
+      <h3>${AXES[a].name}</h3><p>${AXES[a].desc} · 페이지 평균</p>
+    </div>`).join("");
+  Object.keys(AXES).forEach(a => ring($("ring-" + a), scores[a], AXES[a].color));
+
+  /* 공통 이슈 집계 */
+  const agg = {};
+  for (const p of pages) {
+    for (const c of p.checks) {
+      if (c.status !== "fail" && c.status !== "warn") continue;
+      const key = c.axis + "|" + c.label;
+      if (!agg[key]) agg[key] = { ...c, failCnt: 0, warnCnt: 0 };
+      if (c.status === "fail") agg[key].failCnt++; else agg[key].warnCnt++;
+      if (c.status === "fail" && !agg[key].advice) agg[key].advice = c.advice;
+    }
+  }
+  const todos = Object.values(agg).sort((x, y) => (y.failCnt * 2 + y.warnCnt) * y.weight - (x.failCnt * 2 + x.warnCnt) * x.weight);
+  $("todo").innerHTML = todos.length === 0 ? '<div class="todo-item">모든 페이지가 전 항목을 충족했습니다.</div>' :
+    todos.map(c => {
+      const sev = c.failCnt >= pages.length * 0.5 && c.weight >= 2 ? ["high", "높음"] : (c.failCnt > 0 || c.weight >= 2 ? ["mid", "중간"] : ["low", "낮음"]);
+      const key = c.axis + "|" + c.label;
+      return `<div class="todo-item">
+        <span class="chip ${sev[0]}">${sev[1]}</span>
+        <div style="flex:1"><span class="chev">▶</span> <b>${esc(c.label)}</b> <span class="cnt">· ${AXES[c.axis].name} · 미충족 ${c.failCnt.toLocaleString()} / 개선 필요 ${c.warnCnt.toLocaleString()}개 페이지</span>
+        <div class="ad">${esc(c.advice)}</div>
+        ${guideHtml(key)}</div>
+      </div>`;
+    }).join("");
+  $("todo").querySelectorAll(".todo-item").forEach(el => {
+    el.addEventListener("click", e => {
+      if (e.target.closest(".guide")) return; // 가이드 내부 클릭(코드 복사 등)은 접지 않음
+      el.classList.toggle("open");
+    });
+  });
+
+  /* 페이지 테이블 */
+  const sorted = [...pages].sort((a, b) => a.scores.total - b.scores.total);
+  $("page-rows").innerHTML = sorted.map((p, i) => `
+    <tr class="page-row" data-i="${i}">
+      <td class="url">${esc(p.url)}<div class="t">${esc(p.title || "(제목 없음)")}</div></td>
+      <td class="sc ${scClass(p.scores.google)}">${p.scores.google}</td>
+      <td class="sc ${scClass(p.scores.naver)}">${p.scores.naver}</td>
+      <td class="sc ${scClass(p.scores.geo)}">${p.scores.geo}</td>
+      <td class="sc ${scClass(p.scores.tech)}">${p.scores.tech}</td>
+      <td class="sc ${scClass(p.scores.total)}">${p.scores.total}</td>
+    </tr>`).join("");
+
+  const icon = { pass: "✓", warn: "!", fail: "✕", info: "i" };
+  $("page-rows").querySelectorAll("tr.page-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const next = row.nextElementSibling;
+      if (next && next.classList.contains("detail-row")) return next.remove();
+      document.querySelectorAll(".detail-row").forEach(r => r.remove());
+      const p = sorted[+row.dataset.i];
+      const tr = document.createElement("tr");
+      tr.className = "detail-row";
+      tr.innerHTML = `<td colspan="6">` + p.checks.map(c => `
+        <div class="check">
+          <div class="ico ${c.status}">${icon[c.status]}</div>
+          <div style="flex:1">
+            <b>${esc(c.label)}</b> <span class="badge">${AXES[c.axis].name}</span>${c.src ? ` <span class="badge">${esc(c.src)}</span>` : ""}
+            <div class="detail">${esc(c.detail)}</div>
+            ${c.advice ? `<div class="advice">${esc(c.advice)}</div>` : ""}
+          </div>
+        </div>`).join("") + `</td>`;
+      row.after(tr);
+    });
+  });
+
+  $("err-list").innerHTML = errors.length ? `<b>가져오기 실패 ${errors.length}건:</b> ` + errors.slice(0, 30).map(e => esc(e.url) + " (" + esc(e.error) + ")").join(" · ") + (errors.length > 30 ? " 외 " + (errors.length - 30) + "건" : "") : "";
+  $("results").style.display = "block";
+}
+
+$("go").addEventListener("click", () => { es ? stop() : start(); });
+$("url").addEventListener("keydown", e => { if (e.key === "Enter" && !es) start(); });
+</script>
+</body>
+</html>

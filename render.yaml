@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: seo-geo-analyzer
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
