@@ -147,7 +147,7 @@ function hostMatch(link, host) {
   } catch (e) { return false; }
 }
 
-async function naverRank(kw, host, id, secret) {
+async function naverRank(kw, host, id, secret, postUrl) {
   try {
     const r = await fetch("https://openapi.naver.com/v1/search/webkr.json?display=30&query=" + encodeURIComponent(kw), {
       headers: { "X-Naver-Client-Id": id, "X-Naver-Client-Secret": secret },
@@ -157,11 +157,12 @@ async function naverRank(kw, host, id, secret) {
     const j = await r.json();
     const items = j.items || [];
     const idx = items.findIndex(it => hostMatch(it.link, host));
-    return { rank: idx === -1 ? null : idx + 1, checked: items.length, top: items.slice(0, 3).map(it => ({ title: (it.title || "").replace(/<[^>]+>/g, ""), link: it.link })) };
+    const pIdx = postUrl ? items.findIndex(it => samePost(it.link, postUrl)) : -1;
+    return { rank: idx === -1 ? null : idx + 1, postRank: pIdx === -1 ? null : pIdx + 1, checked: items.length, top: items.slice(0, 3).map(it => ({ title: (it.title || "").replace(/<[^>]+>/g, ""), link: it.link })) };
   } catch (e) { return { error: "네이버 API 호출 실패: " + e.message }; }
 }
 
-async function googleRank(kw, host, key, cx) {
+async function googleRank(kw, host, key, cx, postUrl) {
   try {
     const r = await fetch("https://www.googleapis.com/customsearch/v1?key=" + encodeURIComponent(key) + "&cx=" + encodeURIComponent(cx) + "&num=10&q=" + encodeURIComponent(kw), {
       signal: AbortSignal.timeout(10000)
@@ -170,8 +171,94 @@ async function googleRank(kw, host, key, cx) {
     const j = await r.json();
     const items = j.items || [];
     const idx = items.findIndex(it => hostMatch(it.link, host));
-    return { rank: idx === -1 ? null : idx + 1, checked: items.length, top: items.slice(0, 3).map(it => ({ title: it.title, link: it.link })) };
+    const pIdx = postUrl ? items.findIndex(it => samePost(it.link, postUrl)) : -1;
+    return { rank: idx === -1 ? null : idx + 1, postRank: pIdx === -1 ? null : pIdx + 1, checked: items.length, top: items.slice(0, 3).map(it => ({ title: it.title, link: it.link })) };
   } catch (e) { return { error: "구글 API 호출 실패: " + e.message }; }
+}
+
+/* 글 단위 URL 일치 (경로 기준, 네이버 블로그는 logNo 기준) */
+function samePost(a, b) {
+  try {
+    const ua = new URL(a), ub = new URL(b);
+    const ha = ua.hostname.replace(/^(www|m)\./, ""), hb = ub.hostname.replace(/^(www|m)\./, "");
+    if (ha.includes("blog.naver.com") && hb.includes("blog.naver.com")) {
+      const la = (a.match(/(\d{9,})/) || [])[1], lb = (b.match(/(\d{9,})/) || [])[1];
+      return !!la && la === lb;
+    }
+    const pa = ua.pathname.replace(/\/$/, ""), pb = ub.pathname.replace(/\/$/, "");
+    return ha === hb && pa === pb;
+  } catch (e) { return false; }
+}
+
+/* 네이버 블로그 iframe 구조 → 실제 본문(PostView) URL 변환 */
+function convertNaverBlog(raw) {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^m\./, "");
+    if (host !== "blog.naver.com") return { fetchUrl: raw, isNaverBlog: false };
+    if (/PostView/i.test(u.pathname)) return { fetchUrl: raw, isNaverBlog: true };
+    const m = u.pathname.match(/^\/([^/]+)\/(\d+)/);
+    if (m) return { fetchUrl: `https://blog.naver.com/PostView.naver?blogId=${m[1]}&logNo=${m[2]}`, isNaverBlog: true };
+    return { fetchUrl: raw, isNaverBlog: true };
+  } catch (e) { return { fetchUrl: raw, isNaverBlog: false }; }
+}
+
+function computeAiBlocked(robots) {
+  const AI_BOTS = ["gptbot", "oai-searchbot", "chatgpt-user", "perplexitybot", "claudebot", "google-extended", "ccbot"];
+  const blocked = [];
+  if (robots) {
+    const blocks = robots.toLowerCase().split(/(?=user-agent:)/);
+    for (const b of blocks) {
+      const ua = (b.match(/user-agent:\s*(\S+)/) || [])[1] || "";
+      if (AI_BOTS.some(bot => ua.includes(bot)) && /disallow:\s*\/\s*$/m.test(b)) blocked.push(ua);
+    }
+  }
+  return blocked;
+}
+
+/* ===== 블로그 글 1개 키워드 분석 ===== */
+async function handleKeywordSingle(req, res, query) {
+  const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify(obj)); };
+  let input = (query.get("url") || "").trim();
+  if (!/^https?:\/\//i.test(input)) input = "https://" + input;
+  let target;
+  try { target = new URL(input); } catch (e) { return json(400, { error: "올바른 URL 형식이 아닙니다." }); }
+  const keywords = (query.get("keywords") || "").split(",").map(t => t.trim()).filter(Boolean).slice(0, 10);
+  if (!keywords.length) return json(400, { error: "키워드를 1개 이상 입력하세요." });
+  const nid = query.get("nid") || "", nsec = query.get("nsec") || "";
+  const gkey = query.get("gkey") || "", gcx = query.get("gcx") || "";
+
+  const conv = convertNaverBlog(input);
+  let robots = null, llms = null;
+  const origin = new URL(conv.fetchUrl).origin;
+  try { const r = await fetchText(origin + "/robots.txt"); robots = r.ok ? await r.text() : ""; } catch (e) { robots = null; }
+  try { const r = await fetchText(origin + "/llms.txt"); llms = r.ok ? await r.text() : ""; } catch (e) { llms = null; }
+  if (llms && /<html/i.test(llms.slice(0, 300))) llms = "";
+
+  let html;
+  try {
+    const r = await fetchText(conv.fetchUrl);
+    if (!r.ok) return json(502, { error: "글을 가져오지 못했습니다 (HTTP " + r.status + ")" });
+    html = await r.text();
+  } catch (e) {
+    return json(502, { error: "글을 가져오지 못했습니다: " + (e.name === "TimeoutError" ? "시간 초과" : e.message) });
+  }
+
+  const result = analyze(html, input, { robots, llms });
+  const kwExtras = { robots, aiBlocked: computeAiBlocked(robots) };
+  const host = target.hostname.replace(/^(www|m)\./, "");
+
+  const results = [];
+  for (const kw of keywords) {
+    const scored = scoreKeyword(result, kw, kwExtras);
+    const [naver, google] = await Promise.all([
+      nid && nsec ? naverRank(kw, host, nid, nsec, input) : Promise.resolve(null),
+      gkey && gcx ? googleRank(kw, host, gkey, gcx, input) : Promise.resolve(null)
+    ]);
+    results.push({ keyword: kw, scores: scored.scores, checks: scored.checks, naver, google });
+  }
+
+  json(200, { page: { url: input, title: result.title }, isNaverBlog: conv.isNaverBlog, results });
 }
 
 /* ===== 키워드 분석 핸들러 ===== */
@@ -279,6 +366,7 @@ const server = http.createServer((req, res) => {
   const u = new URL(req.url, "http://localhost");
   if (u.pathname === "/api/crawl") return handleCrawl(req, res, u.searchParams);
   if (u.pathname === "/api/keyword-analyze") return handleKeywordAnalyze(req, res, u.searchParams);
+  if (u.pathname === "/api/keyword-single") return handleKeywordSingle(req, res, u.searchParams);
   if (u.pathname === "/" || u.pathname === "/index.html") {
     const f = fs.existsSync(path.join(__dirname, "index.html"))
       ? path.join(__dirname, "index.html")
