@@ -203,6 +203,15 @@ function convertNaverBlog(raw) {
   } catch (e) { return { fetchUrl: raw, isNaverBlog: false }; }
 }
 
+/* 블로그 플랫폼 감지 (코드 삽입 가능 여부 분기용) */
+function detectPlatform(host) {
+  const h = (host || "").replace(/^(www|m)\./, "");
+  if (h.includes("blog.naver.com")) return "naver";
+  if (h.endsWith("tistory.com")) return "tistory";
+  if (h.includes("brunch.co.kr")) return "brunch";
+  return "generic";
+}
+
 function computeAiBlocked(robots) {
   const AI_BOTS = ["gptbot", "oai-searchbot", "chatgpt-user", "perplexitybot", "claudebot", "google-extended", "ccbot"];
   const blocked = [];
@@ -244,8 +253,9 @@ async function handleKeywordSingle(req, res, query) {
     return json(502, { error: "글을 가져오지 못했습니다: " + (e.name === "TimeoutError" ? "시간 초과" : e.message) });
   }
 
+  const platform = detectPlatform(target.hostname);
   const result = analyze(html, input, { robots, llms });
-  const kwExtras = { robots, aiBlocked: computeAiBlocked(robots) };
+  const kwExtras = { robots, aiBlocked: computeAiBlocked(robots), platform };
   const host = target.hostname.replace(/^(www|m)\./, "");
 
   const results = [];
@@ -258,7 +268,7 @@ async function handleKeywordSingle(req, res, query) {
     results.push({ keyword: kw, scores: scored.scores, checks: scored.checks, naver, google });
   }
 
-  json(200, { page: { url: input, title: result.title }, isNaverBlog: conv.isNaverBlog, results });
+  json(200, { page: { url: input, title: result.title }, isNaverBlog: conv.isNaverBlog, platform, results });
 }
 
 /* ===== 키워드 분석 핸들러 ===== */

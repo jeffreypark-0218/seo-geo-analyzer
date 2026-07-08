@@ -114,6 +114,27 @@ function analyze(rawHtml, url, extras) {
   const atomicParas = paraLens.filter(l => l >= 80 && l <= 600).length;
   const atomicRatio = paraLens.length ? atomicParas / paraLens.length : 0;
 
+  /* FAQ 콘텐츠(질문-답변 형식) 감지 휴리스틱 — 스키마 코드 유무와 별개 */
+  let faqPairs = 0;
+  for (const h of doc.querySelectorAll("h2,h3,h4")) {
+    const ht = (h.textContent || "").trim();
+    if (!/\?$|나요\??$|인가요\??$|까요\??$|을까\??$|할까\??$|무엇|어떻게|어떤|왜/.test(ht)) continue;
+    let sib = h.nextElementSibling, hop = 0;
+    while (sib && hop < 3) {
+      if (/^H[1-6]$/.test(sib.tagName)) break;
+      if (/^(P|DIV|UL|OL|DL)$/.test(sib.tagName) && (sib.textContent || "").trim().length > 20) { faqPairs++; break; }
+      sib = sib.nextElementSibling; hop++;
+    }
+  }
+  const qMarkers = (text.match(/Q\d*\s*[.)]|질문\s*[:：]/g) || []).length;
+  const hasFaqContent = faqPairs >= 2 || qMarkers >= 2;
+
+  /* 제목-H1 중복 여부 (C-1) */
+  const h1Text = h1s.length ? (h1s[0].textContent || "").trim() : "";
+  const normTxt = s => (s || "").replace(/[^\w가-힣]/g, "").toLowerCase();
+  const tN = normTxt(title), h1N = normTxt(h1Text);
+  const titleH1Same = !!tN && !!h1N && (tN === h1N || (tN.includes(h1N) && h1N.length >= 8) || (h1N.includes(tN) && tN.length >= 8));
+
   // robots.txt에서 AI 크롤러 차단 여부 (OtterlyAI 가이드)
   const AI_BOTS = ["gptbot", "oai-searchbot", "chatgpt-user", "perplexitybot", "claudebot", "google-extended", "ccbot", "bingbot"];
   const blockedBots = [];
@@ -167,11 +188,15 @@ function analyze(rawHtml, url, extras) {
   add("google", "구조화 데이터 (JSON-LD)", 2,
     ldTypes.length ? "pass" : "fail",
     ldTypes.length ? "스키마 발견: " + [...new Set(ldTypes)].slice(0, 6).join(", ") : "JSON-LD 구조화 데이터 없음",
-    "Organization, Article, BreadcrumbList 등 JSON-LD 스키마를 추가하세요. 리치 결과 노출 자격이 생깁니다.");
+    "Organization, Article, BreadcrumbList 등 JSON-LD 스키마를 추가하세요. 검색엔진·AI가 페이지 구조를 이해하는 데 도움이 됩니다(FAQ 리치 결과 표시는 구글에서 종료됨). 표시 효과보다 기계 가독성·지식그래프 편입 관점의 가치입니다.");
   add("google", "내부 링크", 1,
     internal.length >= 5 ? "pass" : (internal.length >= 1 ? "warn" : "fail"),
     `내부 링크 ${internal.length}개`,
     "관련 페이지로 연결되는 내부 링크를 늘려 크롤링 경로와 페이지 권위 전달을 개선하세요.");
+  add("google", "제목-H1 차별화", 1,
+    !h1Text ? "info" : (titleH1Same ? "warn" : "pass"),
+    !h1Text ? "H1 없음" : (titleH1Same ? `제목과 H1이 사실상 동일: "${h1Text.slice(0, 40)}"` : "제목과 H1이 서로 다름"),
+    "제목과 H1을 완전히 똑같이 쓰면 커버리지가 좁아집니다. H1에는 보조 키워드를 넣어 제목과 다르게 작성하면 노출 폭이 넓어집니다.");
   add("google", "robots.txt / 사이트맵", 2,
     extras.robots === null ? "info" : (extras.robots && /sitemap/i.test(extras.robots) ? "pass" : (extras.robots ? "warn" : "fail")),
     extras.robots === null ? "확인 불가" : (extras.robots ? (/sitemap/i.test(extras.robots) ? "robots.txt 존재, Sitemap 선언됨" : "robots.txt는 있으나 Sitemap 선언 없음") : "robots.txt 없음"),
@@ -256,7 +281,7 @@ function analyze(rawHtml, url, extras) {
   add("geo", "핵심 스키마 마크업 (JSON-LD)", 3,
     hasSchemaOf("Organization", "Product", "Article", "NewsArticle", "BlogPosting", "Review", "FAQPage", "HowTo") ? "pass" : (ldTypes.length ? "warn" : "fail"),
     ldTypes.length ? "발견: " + [...new Set(ldTypes)].slice(0, 6).join(", ") : "JSON-LD 없음",
-    "Organization, Product, Article, Review, FAQ 스키마를 JSON-LD로 추가하세요. AI에게 페이지 내용을 요약해주는 '치트시트' 역할을 하며 지식그래프 편입의 기반입니다.",
+    "콘텐츠 유형에 맞는 스키마를 JSON-LD로 추가하세요. 블로그 글 → Article/BlogPosting + (Q&A가 있으면) FAQPage. HowTo는 단계별 절차 글에만, QAPage는 커뮤니티 게시판(다수 답변)에만 사용합니다. 스키마는 AI에게 페이지 내용을 요약해주는 '치트시트' 역할을 하며 지식그래프 편입의 기반입니다.",
     "OtterlyAI (Schema.org for AI Search)");
   add("geo", "프래그먼트 품질 (자기완결적 문단)", 2,
     atomicRatio >= 0.5 && paraLens.length >= 3 ? "pass" : (paraLens.length ? "warn" : "fail"),
@@ -360,8 +385,10 @@ function analyze(rawHtml, url, extras) {
     ldRaw: ldRawArr.join(" ").slice(0, 30000),
     ldTypes: [...new Set(ldTypes)],
     hasFaqSchema: hasSchemaOf("FAQPage", "HowTo", "QAPage"),
+    hasFaqContent,
     statCount, quotations,
     externalCount: external.length,
+    internalCount: internal.length,
     hasAuthor: !!author,
     hasDate: !!(modTime || pubTime),
     textLen, allScripts,
@@ -458,11 +485,23 @@ function scoreKeyword(result, keyword, extras) {
     kwPara ? "pass" : (p.paras.some(t => kwIn(t, kw) > 0) ? "warn" : "fail"),
     kwPara ? `발견: "${kwPara.slice(0, 60)}..."` : "키워드를 다루는 적정 길이(80~600자) 문단 없음",
     `"${kw}"에 대한 주장+근거+개체명을 담은 80~600자 문단을 만드세요. AI는 문단 조각 단위로 인용합니다.`);
-  const faqKw = p.hasFaqSchema && kwIn(p.ldRaw, kw) > 0;
-  add("answer", "FAQ 스키마에 키워드", 2,
-    faqKw ? "pass" : (p.hasFaqSchema ? "warn" : "fail"),
-    faqKw ? "FAQ/HowTo 스키마에 키워드 포함" : (p.hasFaqSchema ? "FAQ 스키마는 있으나 키워드 없음" : "FAQ/HowTo 스키마 없음"),
-    `"${kw}" 관련 질문-답변을 FAQPage 스키마(JSON-LD)로 추가하세요. 구조화 마크업은 AI 인용 확률을 약 21.6% 높입니다.`);
+  const platform = (extras && extras.platform) || "generic";
+  const noCodeInsert = platform === "naver" || platform === "brunch";
+  let faqStatus, faqDetail, faqAdvice;
+  if (p.hasFaqContent && p.hasFaqSchema) {
+    faqStatus = "pass"; faqDetail = "질문-답변 콘텐츠와 FAQPage 스키마가 모두 있습니다"; faqAdvice = "";
+  } else if (p.hasFaqContent && !p.hasFaqSchema) {
+    faqStatus = "warn";
+    faqDetail = "질문-답변 콘텐츠는 있으나 FAQPage 스키마(JSON-LD) 코드가 없습니다";
+    faqAdvice = noCodeInsert
+      ? "질문형 소제목 바로 아래 첫 문장에 결론(답변)을 배치하는 Q&A 구조로 정리하세요. 이 플랫폼은 스키마 코드 삽입이 어려우므로 글 구조 자체가 핵심입니다."
+      : "이미 있는 Q&A를 FAQPage 스키마(JSON-LD)로 감싸면 기계 가독성이 올라갑니다. (구글 FAQ 리치 결과 표시는 종료되었으나, AI·검색엔진의 구조 이해에는 여전히 도움됩니다.)";
+  } else {
+    faqStatus = "fail";
+    faqDetail = "질문-답변 형식 콘텐츠가 없습니다";
+    faqAdvice = `"${kw}란?", "${kw} 어떻게 준비하나요?" 같은 질문형 소제목과 그에 대한 답변으로 Q&A 섹션부터 작성하세요.`;
+  }
+  add("answer", "FAQ 질문-답변 구조", 2, faqStatus, faqDetail, faqAdvice);
   add("answer", "목록·표 활용", 1,
     p.listsTables >= 3 ? "pass" : (p.listsTables >= 1 ? "warn" : "fail"),
     `목록·표 ${p.listsTables}개`,
@@ -484,11 +523,33 @@ function scoreKeyword(result, keyword, extras) {
   add("evidence", "작성자 정보", 1,
     p.hasAuthor ? "pass" : "fail",
     p.hasAuthor ? "있음" : "없음",
-    "작성자 이름·직함을 표기하세요. AI는 신뢰 가능한 출처를 우선 인용합니다.");
+    "이름만이 아니라 지도 분야·경력·검수 기준을 사실 범위에서 표기하세요. 예: '10년차 문예창작 지도, OO대 합격생 다수 배출'. AI는 신뢰 가능한 출처를 우선 인용합니다.");
   add("evidence", "발행·수정일", 1,
     p.hasDate ? "pass" : "fail",
     p.hasDate ? "있음" : "없음",
     "발행일/수정일 메타를 추가하고 최신으로 유지하세요.");
+
+  /* B-2 내부 링크 (같은 사이트 다른 글) */
+  add("evidence", "내부 링크", 1,
+    p.internalCount >= 3 ? "pass" : (p.internalCount >= 1 ? "warn" : "fail"),
+    `내부 링크 ${p.internalCount}개`,
+    "관련 글(기출 분석, 후기 등)로 가는 내부 링크를 본문 중간에 3개 이상 넣으세요. 전문성 신호와 체류 시간에 모두 기여합니다.");
+
+  /* C-2 수치의 기준 연도·출처 병기 */
+  const statPat = /\d+(\.\d+)?\s*(%|퍼센트|억|만|천|배|개|명|원|시간|분|위|점|등급)/g;
+  const txt = p.text || "";
+  let statTotal = 0, statCited = 0, mm;
+  while ((mm = statPat.exec(txt)) !== null) {
+    statTotal++;
+    const ctx = txt.slice(Math.max(0, mm.index - 40), Math.min(txt.length, mm.index + mm[0].length + 40));
+    if (/20\d{2}\s*년?|\d{4}\s*학년도|출처|기준|모집요강|조사|자료|발표|통계/.test(ctx)) statCited++;
+  }
+  const citeRatio = statTotal ? statCited / statTotal : 0;
+  let citeStatus, citeDetail;
+  if (statTotal < 2) { citeStatus = "info"; citeDetail = `수치 표현이 ${statTotal}건으로 적어 출처 병기 여부를 측정하지 않았습니다`; }
+  else { citeStatus = citeRatio >= 0.5 ? "pass" : (citeRatio >= 0.2 ? "warn" : "fail"); citeDetail = `수치 ${statTotal}건 중 ${statCited}건에 연도·출처가 함께 표기됨 (${Math.round(citeRatio * 100)}%)`; }
+  add("evidence", "수치의 연도·출처 병기", 2, citeStatus, citeDetail,
+    "수치마다 기준 연도와 출처를 병기하세요. 예: '2026학년도 모집요강 기준 실기 90%'. AI는 출처가 명시된 수치를 우선 인용합니다.");
 
   /* 검색 자격 */
   add("eligibility", "색인 허용", 3,
@@ -505,9 +566,11 @@ function scoreKeyword(result, keyword, extras) {
     `본문 ${p.textLen.toLocaleString()}자`,
     "핵심 콘텐츠를 순수 HTML로 제공하세요. AI 크롤러는 JS를 실행하지 않습니다.");
   add("eligibility", "구조화 데이터", 1,
-    p.ldTypes.length ? "pass" : "fail",
-    p.ldTypes.length ? p.ldTypes.slice(0, 4).join(", ") : "없음",
-    "JSON-LD 스키마를 추가하세요.");
+    noCodeInsert ? "info" : (p.ldTypes.length ? "pass" : "fail"),
+    noCodeInsert ? "이 플랫폼은 JSON-LD 직접 삽입이 어려워 점수에서 제외" : (p.ldTypes.length ? p.ldTypes.slice(0, 4).join(", ") : "없음"),
+    platform === "tistory"
+      ? "티스토리는 스킨 편집 → HTML 편집에서 삽입 가능하나 난이도가 있습니다. 우선순위는 글 구조 개선입니다."
+      : "JSON-LD 스키마를 추가하세요.");
   add("eligibility", "HTTPS", 1,
     p.https ? "pass" : "fail", p.https ? "적용됨" : "미적용",
     "HTTPS를 적용하세요.");
