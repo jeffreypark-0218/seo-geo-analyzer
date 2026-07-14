@@ -5,7 +5,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { analyze, scoreKeyword } = require("./analyzer");
+const { analyze, scoreKeyword, aiCrawlerMatrix, evaluateFragments, buildRoadmap, generateFixes } = require("./analyzer");
 
 const PORT = process.env.PORT || 3000;
 const CONCURRENCY = 5;
@@ -258,6 +258,25 @@ async function handleKeywordSingle(req, res, query) {
   const kwExtras = { robots, aiBlocked: computeAiBlocked(robots), platform };
   const host = target.hostname.replace(/^(www|m)\./, "");
 
+  // G-4: 경쟁 URL (최대 2개) — 실패는 조용히 비교 불가 처리
+  const competitorUrls = (query.get("competitors") || "").split(",").map(s => s.trim()).filter(Boolean).slice(0, 2);
+  const competitors = [];
+  for (let cu of competitorUrls) {
+    if (!/^https?:\/\//i.test(cu)) cu = "https://" + cu;
+    try {
+      const cconv = convertNaverBlog(cu);
+      const cr = await fetchText(cconv.fetchUrl);
+      if (!cr.ok) { competitors.push({ url: cu, ok: false }); continue; }
+      const chtml = await cr.text();
+      let crobots = null;
+      try { const rr = await fetchText(new URL(cconv.fetchUrl).origin + "/robots.txt"); crobots = rr.ok ? await rr.text() : ""; } catch (e) { crobots = null; }
+      const cresult = analyze(chtml, cu, { robots: crobots, llms: null });
+      const cext = { robots: crobots, aiBlocked: computeAiBlocked(crobots), platform: detectPlatform(new URL(cu).hostname) };
+      const byKw = keywords.map(kw => { const sc = scoreKeyword(cresult, kw, cext); return { keyword: kw, scores: sc.scores, checks: sc.checks }; });
+      competitors.push({ url: cu, ok: true, title: cresult.title, results: byKw });
+    } catch (e) { competitors.push({ url: cu, ok: false }); }
+  }
+
   const results = [];
   for (const kw of keywords) {
     const scored = scoreKeyword(result, kw, kwExtras);
@@ -265,10 +284,19 @@ async function handleKeywordSingle(req, res, query) {
       nid && nsec ? naverRank(kw, host, nid, nsec, input) : Promise.resolve(null),
       gkey && gcx ? googleRank(kw, host, gkey, gcx, input) : Promise.resolve(null)
     ]);
-    results.push({ keyword: kw, scores: scored.scores, checks: scored.checks, naver, google });
+    results.push({
+      keyword: kw, scores: scored.scores, checks: scored.checks, naver, google,
+      fixes: generateFixes(result, kw, robots),
+      fragments: evaluateFragments(result.page.paras, kw),
+      roadmap: buildRoadmap(scored.checks, "keyword")
+    });
   }
 
-  json(200, { page: { url: input, title: result.title }, isNaverBlog: conv.isNaverBlog, platform, results });
+  json(200, {
+    page: { url: input, title: result.title }, isNaverBlog: conv.isNaverBlog, platform, results,
+    crawlerMatrix: aiCrawlerMatrix(robots),
+    competitors
+  });
 }
 
 /* ===== 키워드 분석 핸들러 ===== */
@@ -319,10 +347,12 @@ async function handleKeywordAnalyze(req, res, query) {
     if (aborted) break;
     send("keywordStart", { keyword: kw });
 
-    const scored = crawl.results.map(r => scoreKeyword(r, kw, kwExtras))
-      .sort((a, b) => b.scores.total - a.scores.total || b.scores.relevance - a.scores.relevance);
+    const scoredPairs = crawl.results.map(r => ({ r, sc: scoreKeyword(r, kw, kwExtras) }))
+      .sort((a, b) => b.sc.scores.total - a.sc.scores.total || b.sc.scores.relevance - a.sc.scores.relevance);
+    const scored = scoredPairs.map(x => x.sc);
     const top = scored.slice(0, 5);
-    const best = top[0] || null;
+    const bestPair = scoredPairs[0] || null;
+    const best = bestPair ? bestPair.sc : null;
     const coverage = scored.filter(s => s.scores.relevance >= 40).length;
 
     const [naver, google] = await Promise.all([
@@ -336,11 +366,14 @@ async function handleKeywordAnalyze(req, res, query) {
       top: top.map(t => ({ url: t.url, title: t.title, scores: t.scores })),
       coverage,
       totalPages: crawl.results.length,
+      fixes: bestPair ? generateFixes(bestPair.r, kw, crawl.extras.robots) : null,
+      fragments: bestPair ? evaluateFragments(bestPair.r.page.paras, kw) : null,
+      roadmap: best ? buildRoadmap(best.checks, "keyword") : null,
       naver, google
     });
   }
 
-  send("done", { analyzed: crawl.analyzed, elapsedSec: crawl.elapsedSec });
+  send("done", { analyzed: crawl.analyzed, elapsedSec: crawl.elapsedSec, crawlerMatrix: aiCrawlerMatrix(crawl.extras.robots) });
   res.end();
 }
 
@@ -367,7 +400,7 @@ async function handleCrawl(req, res, query) {
   }
   const crawl = await crawlSite(start, query.get("ignoreQuery") !== "0", () => aborted, send, false);
   if (aborted) return res.end();
-  send("done", { analyzed: crawl.analyzed, failed: crawl.failed, discovered: crawl.discovered, elapsedSec: crawl.elapsedSec });
+  send("done", { analyzed: crawl.analyzed, failed: crawl.failed, discovered: crawl.discovered, elapsedSec: crawl.elapsedSec, crawlerMatrix: aiCrawlerMatrix(crawl.extras.robots) });
   res.end();
 }
 

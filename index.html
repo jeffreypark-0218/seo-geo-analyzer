@@ -6,9 +6,16 @@
 <title>SEO/GEO 사이트 전체 분석기</title>
 <style>
   :root {
-    --bg: #f6f7fb; --card: #ffffff; --ink: #1a1d29; --sub: #6b7280;
-    --line: #e5e7eb; --blue: #2563eb; --green: #16a34a; --amber: #d97706;
-    --red: #dc2626; --violet: #7c3aed;
+    /* 다크 진단 장비 테마 */
+    --bg: #0B1220; --card: #111A2E; --card-2: #16213A; --line: #24304D;
+    --ink: #E6EDF7; --sub: #8B99B5;
+    --ok: #2DD4A7; --warn: #F5B93F; --bad: #F0566B; --info: #5E6C8C;
+    --accent: #38BDF8; --accent-2: #7C8CFF;
+    --track: #1C2740;
+    --glow: 0 0 24px rgba(56,189,248,.25);
+    /* 기존 변수명 별칭(다크 대응) — 컴포넌트 재사용 */
+    --green: #2DD4A7; --amber: #F5B93F; --red: #F0566B; --blue: #38BDF8; --violet: #7C8CFF;
+    --mono: 'JetBrains Mono', 'Consolas', ui-monospace, monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: "Pretendard", -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.6; }
@@ -143,13 +150,182 @@
   .rewrite-box b { color: var(--blue); }
   .rewrite-box ul { margin: 8px 0 0 18px; }
   .rewrite-box li { margin: 5px 0; }
+
+  /* ===== T-1 다크 대응 오버라이드 (하드코딩 색 → 다크) ===== */
+  b, strong, .sc, .kw-total, .big-ring .num b, .ring .num, .kw-axis .vl, .todo-item .cnt, td, th, .num { font-variant-numeric: tabular-nums; }
+  .search-box input, .kw-form input[type=text] { background: var(--card-2); color: var(--ink); }
+  .search-box input::placeholder, .kw-form input::placeholder, .api-box input::placeholder { color: #55618099; }
+  .search-box button { background: var(--accent); color: #06263a; }
+  .search-box button:hover { background: #7dd3fc; }
+  .search-box button.stop, .kw-form button.main.stop { background: var(--bad); color: #2a0710; }
+  #progress, #kprogress { background: var(--card); border-color: var(--line); }
+  #progress .bar { background: var(--track); }
+  #error { background: rgba(240,86,107,.1); border-color: rgba(240,86,107,.35); color: #ffa9b5; }
+  th { background: var(--card-2); color: var(--sub); border-color: var(--line); }
+  td { border-color: var(--line); }
+  tr.page-row:hover { background: var(--card-2); }
+  tr.detail-row td { background: #0d1526; }
+  .check { border-color: var(--line); }
+  .check .badge { background: var(--card-2); color: var(--sub); }
+  .check .advice { background: var(--card-2); border-left-color: var(--accent); }
+  .todo-item { border-color: var(--line); }
+  .todo-item:hover { background: var(--card-2); }
+  .guide { background: var(--card-2); border-color: var(--line); }
+  .guide code { background: rgba(124,140,255,.16); color: #b9c2ff; }
+  .guide pre { background: #060b16; border: 1px solid var(--line); }
+  .chip.high { background: rgba(240,86,107,.14); color: #ffa9b5; }
+  .chip.mid { background: rgba(245,185,63,.14); color: #ffcf7a; }
+  .chip.low { background: rgba(56,189,248,.14); color: #9bdcff; }
+  .sidebar .mi:hover { background: var(--card-2); }
+  .kw-form { background: var(--card); border-color: var(--line); }
+  .kw-form input[type=text]:focus { border-color: var(--accent-2); }
+  .kw-form button.main { background: var(--accent-2); color: #0a0f26; }
+  .api-box input { background: var(--card-2); color: var(--ink); border-color: var(--line); }
+  .kw-card { background: var(--card); border-color: var(--line); }
+  .kw-axis { background: var(--card-2); }
+  .kw-axis .bar { background: var(--track); }
+  .serp .pill { background: var(--card-2); color: var(--ink); }
+  .serp .pill.ok { background: rgba(45,212,167,.14); color: var(--ok); }
+  .serp .pill.no { background: rgba(240,86,107,.14); color: #ffa9b5; }
+  .suggest-box { background: rgba(124,140,255,.08); border-color: rgba(124,140,255,.28); }
+  .kmtab { background: var(--card-2); border-color: var(--line); color: var(--sub); }
+  .kmtab.active { background: var(--accent-2); border-color: var(--accent-2); color: #0a0f26; }
+  .warn-box { background: rgba(245,185,63,.08); border-color: rgba(245,185,63,.28); color: var(--ink); }
+  .rewrite-box { background: rgba(56,189,248,.07); border-color: rgba(56,189,248,.26); }
+  .rewrite-box b { color: var(--accent); }
+  .ico.info { background: var(--info); }
+  .overall, .axis-card, .panel { background: var(--card); border-color: var(--line); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+  .big-ring .num, .ring .num { background: var(--card); }
+  .sidebar .mi.active { background: var(--card-2); color: var(--accent); border-color: var(--line); }
+  .kerr { display:none; padding:16px 20px; background: rgba(240,86,107,.1); border:1px solid rgba(240,86,107,.35); border-radius:12px; color:#ffa9b5; font-size:14px; margin-bottom:16px; }
+  header h1 span { color: var(--accent); }
+  .score-total-glow { text-shadow: var(--glow); }
+  .mono { font-family: var(--mono); }
+
+  /* ===== T-2 첫 화면 캡션 ===== */
+  .cap { text-align:center; color:var(--sub); font-size:12.5px; margin: 2px auto 30px; }
+  .cap .dot { color: var(--line); margin: 0 6px; }
+
+  /* ===== T-3 증상 카드 ===== */
+  .symptoms { display:grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr)); gap:14px; margin: 8px 0 26px; }
+  .sym { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+  .sym .ax { font-size:14px; font-weight:800; }
+  .sym .q { font-size:12.5px; color:var(--sub); margin:5px 0 8px; }
+  .sym .s { font-size:12.5px; color:var(--ink); background:var(--card-2); border-left:3px solid var(--accent); border-radius:0 6px 6px 0; padding:6px 10px; }
+  .sym.g .ax{color:#8ab4ff} .sym.n .ax{color:#4ade80} .sym.geo .ax{color:#c4b5fd} .sym.t .ax{color:#fbbf24}
+
+  /* ===== T-4 진행 스텝퍼 ===== */
+  .stepper { display:flex; gap:8px; margin: 4px 0 14px; flex-wrap:wrap; }
+  .step { flex:1; min-width:120px; display:flex; align-items:center; gap:10px; padding:12px 14px; background:var(--card-2); border:1px solid var(--line); border-radius:12px; opacity:.55; }
+  .step .n { width:22px; height:22px; border-radius:50%; background:var(--track); color:var(--sub); font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .step .t { font-size:13px; font-weight:700; }
+  .step .t small { display:block; font-weight:400; font-size:11px; color:var(--sub); }
+  .step.active { opacity:1; border-color:var(--accent); }
+  .step.active .n { background:var(--accent); color:#06263a; position:relative; }
+  .step.active .n::after { content:""; position:absolute; inset:-5px; border-radius:50%; border:2px solid var(--accent); animation: pulse 1.5s ease infinite; }
+  .step.done { opacity:1; }
+  .step.done .n { background:var(--ok); color:#05271e; }
+  @keyframes pulse { 0%{transform:scale(.9);opacity:.7} 70%{transform:scale(1.25);opacity:0} 100%{opacity:0} }
+
+  /* ===== T-5 채점 기준 섹션 ===== */
+  .criteria { margin: 24px 0; }
+  .criteria > h2 { font-size:18px; font-weight:800; text-align:center; }
+  .criteria > p { text-align:center; color:var(--sub); font-size:13px; margin:4px 0 16px; }
+  .crit-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap:14px; }
+  .crit { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .crit h3 { font-size:14px; font-weight:800; color:var(--accent); }
+  .crit .src { font-size:11.5px; color:var(--sub); margin:3px 0 8px; }
+  .crit p { font-size:12.5px; color:var(--ink); }
+  .crit .cnt { display:inline-block; margin-top:8px; font-size:11.5px; font-weight:700; color:var(--accent-2); background:var(--card-2); padding:2px 10px; border-radius:99px; }
+  .crit-note { text-align:center; color:var(--sub); font-size:12px; margin-top:14px; }
+
+  /* ===== G-1 수정 코드 ===== */
+  .fixwrap { margin-top:10px; }
+  .fixbtn { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:700; color:var(--accent); background:var(--card-2); border:1px solid var(--line); border-radius:10px; padding:9px 16px; cursor:pointer; }
+  .fixbtn:hover { border-color:var(--accent); }
+  .fixpanel { display:none; margin-top:12px; }
+  .fixpanel.open { display:block; }
+  .fixblock { margin:12px 0; }
+  .fixblock .fhead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:5px; }
+  .fixblock .fhead .ft { font-size:13px; font-weight:800; }
+  .fixblock .fhead .fd { font-size:11.5px; color:var(--sub); }
+  .copybtn { font-size:11.5px; font-weight:700; color:var(--sub); background:var(--card-2); border:1px solid var(--line); border-radius:8px; padding:4px 12px; cursor:pointer; white-space:nowrap; }
+  .copybtn:hover { color:var(--accent); border-color:var(--accent); }
+  .fixblock pre { background:#060b16; border:1px solid var(--line); color:#dbe4f5; padding:12px 14px; border-radius:8px; overflow-x:auto; font-size:12px; line-height:1.55; font-family:var(--mono); margin:0; white-space:pre; }
+
+  /* ===== G-2 AI 시점 / 조각 ===== */
+  .frag { border-left:3px solid var(--line); padding:8px 12px; margin:8px 0; font-size:12.5px; background:var(--card-2); border-radius:0 8px 8px 0; }
+  .frag.good { border-left-color:var(--ok); background:rgba(45,212,167,.07); }
+  .frag.bad { border-left-color:var(--bad); background:rgba(240,86,107,.07); }
+  .frag .why { font-size:11.5px; color:var(--sub); margin-top:4px; }
+  .frag .why b.g { color:var(--ok); } .frag .why b.r { color:var(--bad); }
+  .aiquote { font-family:var(--mono); font-size:12.5px; background:#060b16; border:1px solid var(--line); border-radius:8px; padding:12px 14px; color:#dbe4f5; }
+  .aiquote.empty { color:#ffa9b5; border-color:rgba(240,86,107,.35); }
+
+  /* ===== G-3 로드맵 ===== */
+  .roadmap { margin-top:10px; }
+  .rmphase { border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:10px 0; background:var(--card-2); }
+  .rmphase .rmh { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .rmphase .rmh b { font-size:13.5px; }
+  .rmphase .delta { font-size:13px; font-weight:800; color:var(--ok); white-space:nowrap; }
+  .rmphase ul { margin:8px 0 0 18px; font-size:12.5px; color:var(--ink); }
+  .rmphase li { margin:3px 0; }
+  .rmbar { height:6px; background:var(--track); border-radius:99px; margin-top:8px; overflow:hidden; }
+  .rmbar div { height:100%; background:linear-gradient(90deg,var(--accent),var(--ok)); border-radius:99px; }
+
+  /* ===== G-6 크롤러 매트릭스 ===== */
+  .matrix { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .matrix td, .matrix th { padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .mstat { font-weight:800; white-space:nowrap; }
+  .mstat.allowed { color:var(--ok); } .mstat.partial { color:var(--warn); } .mstat.blocked { color:var(--bad); } .mstat.unknown { color:var(--sub); }
+  .matrix .mbot { font-family:var(--mono); font-weight:700; white-space:nowrap; }
+  .matrix .mdesc { color:var(--sub); font-size:11.5px; }
+
+  /* ===== G-4 경쟁 비교 ===== */
+  .cmp { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px; }
+  .cmp th, .cmp td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:center; }
+  .cmp th:first-child, .cmp td:first-child { text-align:left; }
+  .cmp .win { color:var(--ok); font-weight:800; } .cmp .lose { color:var(--bad); font-weight:800; }
+  .gap-list li { margin:4px 0; font-size:12.5px; }
+
+  /* ===== G-5 재진단 diff 배너 ===== */
+  .diff-banner { background:linear-gradient(90deg, rgba(56,189,248,.1), rgba(45,212,167,.06)); border:1px solid var(--line); border-radius:14px; padding:14px 18px; margin-bottom:16px; font-size:13.5px; }
+  .diff-banner .up { color:var(--ok); font-weight:800; } .diff-banner .down { color:var(--bad); font-weight:800; }
+  .diff-banner details { margin-top:8px; } .diff-banner summary { cursor:pointer; font-size:12.5px; color:var(--sub); }
+
+  /* 섹션 소제목 */
+  .subhead { font-size:15px; font-weight:800; margin:22px 0 6px; display:flex; align-items:center; gap:8px; }
+  .subhead .tag { font-size:10.5px; font-weight:800; color:var(--accent); background:var(--card-2); border:1px solid var(--line); padding:1px 8px; border-radius:99px; }
+  .kw-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .print-btn { font-size:13px; font-weight:700; color:var(--ink); background:var(--card-2); border:1px solid var(--line); border-radius:10px; padding:9px 16px; cursor:pointer; }
+  .print-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+  /* ===== T-6 진단서 인쇄 ===== */
+  .print-head { display:none; }
+  @media print {
+    @page { size: A4; margin: 14mm; }
+    :root { --bg:#fff; --card:#fff; --card-2:#f4f6fa; --line:#c9d2e0; --ink:#0b1220; --sub:#4a5573; --track:#e5e9f0; }
+    body { background:#fff; color:#000; }
+    .sidebar, .search-box, .note, #progress, #kprogress, .kw-form, .stepper, .symptoms, .criteria, .kw-actions, .fixbtn, .kw-mode, footer .no-print, .no-print { display:none !important; }
+    .fixpanel { display:block !important; }
+    .layout { display:block; } .content { width:100%; }
+    .print-head { display:block; border-bottom:2px solid #000; padding-bottom:8px; margin-bottom:14px; }
+    .print-head h1 { font-size:18px; } .print-head .meta { font-size:11px; color:#333; margin-top:4px; }
+    .overall, .axis-card, .panel, .kw-card, .sym, .crit, .rmphase, .frag, .fixblock pre, .matrix, .diff-banner { box-shadow:none !important; border-color:#c9d2e0 !important; background:#fff !important; break-inside: avoid; }
+    .fixblock pre, .aiquote, .guide pre { background:#f4f6fa !important; color:#0b1220 !important; border-color:#c9d2e0 !important; }
+    .check .advice, .warn-box, .rewrite-box, .suggest-box, .kw-axis, .frag, .diff-banner { background:#f4f6fa !important; }
+    a { color:#0b1220; text-decoration:underline; }
+    details { display:block; } details > summary { display:none; }
+    .copybtn, .print-btn, .fixbtn { display:none !important; }
+    .sc.g,.mstat.allowed{color:#0a7f5f!important} .sc.a,.mstat.partial{color:#9a6b00!important} .sc.r,.mstat.blocked{color:#b3243a!important} .sc.b{color:#0b63b8!important}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>SEO<span>/</span>GEO 사이트 전체 분석기</h1>
-    <p>메인 주소만 입력하면 사이트맵과 내부 링크를 따라 모든 페이지를 점검합니다 (페이지 수 제한 없음)</p>
+    <h1>SEO<span>/</span>GEO 진단실</h1>
+    <p>AI가 이 사이트를 수집·인용할 수 있는 상태인가를 판정합니다 — GEO 전문 진단</p>
   </header>
 
   <div class="layout">
@@ -158,16 +334,31 @@
     <div class="mi" data-view="keyword">2. 키워드 분석<small>키워드·질문별 노출 가능성</small></div>
   </nav>
   <div class="content">
+  <div class="print-head" id="print-head"></div>
 
   <div id="view-site">
   <div class="search-box">
     <input id="url" type="text" placeholder="https://example.com" spellcheck="false">
-    <button id="go">전체 분석</button>
+    <button id="go">진단 시작</button>
   </div>
+  <p class="cap">47개 항목 <span class="dot">·</span> 논문 기반 채점 기준 <span class="dot">·</span> 회원가입 없음 <span class="dot">·</span> 입력한 주소는 저장되지 않습니다</p>
   <p class="note"><label><input type="checkbox" id="ignoreQuery" checked> 쿼리스트링(?...)이 다른 URL은 같은 페이지로 취급</label></p>
+
+  <div class="symptoms" id="symptoms">
+    <div class="sym g"><div class="ax">구글 SEO</div><div class="q">검색엔진이 내 사이트를 제대로 이해하는가</div><div class="s">증상: "회사 이름을 검색해도 잘 안 나온다"</div></div>
+    <div class="sym n"><div class="ax">네이버 SEO</div><div class="q">네이버가 신뢰하는 문서 구조인가</div><div class="s">증상: "네이버에서 블로그만 나오고 홈페이지는 안 보인다"</div></div>
+    <div class="sym geo"><div class="ax">AI 검색 (GEO)</div><div class="q">AI가 인용할 만한 콘텐츠인가</div><div class="s">증상: "챗GPT에 물어봐도 우리 회사가 안 나온다"</div></div>
+    <div class="sym t"><div class="ax">기술 기반</div><div class="q">크롤러가 읽을 수 있는 상태인가</div><div class="s">증상: "모바일에서 불편하다는 말을 듣는다"</div></div>
+  </div>
 
   <div id="error"></div>
   <div id="progress">
+    <div class="stepper" id="p-stepper">
+      <div class="step" data-step="1"><div class="n">1</div><div class="t">사이트 접속 확인<small id="p-s1"></small></div></div>
+      <div class="step" data-step="2"><div class="n">2</div><div class="t">페이지 수집<small id="p-s2"></small></div></div>
+      <div class="step" data-step="3"><div class="n">3</div><div class="t">항목별 채점<small id="p-s3"></small></div></div>
+      <div class="step" data-step="4"><div class="n">4</div><div class="t">결과 정리<small id="p-s4"></small></div></div>
+    </div>
     <div class="row">
       <span><b id="p-analyzed">0</b> 페이지 분석 완료 / 발견 <b id="p-found">0</b> · 대기 <span id="p-queued">0</span> · 오류 <span id="p-failed">0</span></span>
       <span id="p-elapsed"></span>
@@ -177,15 +368,23 @@
   </div>
 
   <div id="results">
+    <div id="site-diff"></div>
     <div class="overall">
       <div class="big-ring" id="ring-total"><div class="num"><b id="score-total">0</b><small>/ 100</small></div></div>
       <div class="overall-info">
         <h2 id="target-url"></h2>
         <div class="grade" id="grade"></div>
         <div class="summary" id="summary"></div>
+        <div class="kw-actions no-print"><button class="print-btn" onclick="printReport()">진단서 인쇄 / PDF 저장</button></div>
       </div>
     </div>
     <div class="axes" id="axes"></div>
+
+    <div class="panel" id="site-matrix-panel" style="display:none">
+      <h2>AI 크롤러 접근 매트릭스</h2>
+      <div class="sub">AI 검색·챗봇이 이 사이트를 수집할 수 있는지 봇별로 판정합니다. 차단된 봇의 답변에는 이 사이트가 인용될 수 없습니다.</div>
+      <div style="overflow-x:auto;padding:0 12px 14px" id="site-matrix"></div>
+    </div>
 
     <div class="panel">
       <h2>보완·추가 제안 (사이트 공통)</h2>
@@ -217,6 +416,8 @@
       <input type="text" id="kurl" placeholder="https://todaymocha.com" spellcheck="false">
       <label>키워드 / 질문 (쉼표로 구분, 최대 10개)</label>
       <input type="text" id="kws" placeholder="문예창작과 실기, 문예창작과 입시 준비 방법" spellcheck="false">
+      <label>경쟁 URL 비교 (선택 · 쉼표로 최대 2개) <span style="font-weight:400;color:var(--sub)">— 같은 키워드로 경쟁 페이지도 나란히 진단</span></label>
+      <input type="text" id="kcomp" placeholder="https://경쟁사글주소1, https://경쟁사글주소2" spellcheck="false">
       <details class="api-box">
         <summary>실제 검색 순위 확인 설정 (선택) — 네이버·구글 API 키</summary>
         <div class="grid2">
@@ -236,10 +437,16 @@
         <span style="font-size:12px;color:var(--sub)" id="kmode-hint">사이트 전체를 크롤링한 뒤 키워드별로 채점합니다</span>
       </div>
     </div>
-    <div id="kerror" style="display:none;padding:16px 20px;background:#fef2f2;border:1px solid #fecaca;border-radius:12px;color:var(--red);font-size:14px;margin-bottom:16px"></div>
+    <div id="kerror" class="kerr"></div>
     <div id="kprogress" style="display:none" class="kw-form">
+      <div class="stepper" id="kp-stepper">
+        <div class="step" data-step="1"><div class="n">1</div><div class="t">대상 접속 확인</div></div>
+        <div class="step" data-step="2"><div class="n">2</div><div class="t">본문 수집<small id="kp-s2"></small></div></div>
+        <div class="step" data-step="3"><div class="n">3</div><div class="t">키워드 채점</div></div>
+        <div class="step" data-step="4"><div class="n">4</div><div class="t">결과 정리</div></div>
+      </div>
       <div style="font-size:14px"><b id="kp-text">크롤링 중...</b> <span id="kp-count" style="color:var(--sub)"></span></div>
-      <div style="height:8px;background:#edeef2;border-radius:99px;margin-top:10px;overflow:hidden"><div id="kp-bar" style="height:100%;width:0%;background:var(--violet);border-radius:99px;transition:width .3s"></div></div>
+      <div style="height:8px;background:var(--track);border-radius:99px;margin-top:10px;overflow:hidden"><div id="kp-bar" style="height:100%;width:0%;background:var(--accent-2);border-radius:99px;transition:width .3s"></div></div>
     </div>
     <div id="kresults"></div>
   </div><!-- /view-keyword -->
@@ -247,13 +454,35 @@
   </div><!-- /content -->
   </div><!-- /layout -->
 
+  <section class="criteria no-print">
+    <h2>임의로 매기는 점수가 아닙니다</h2>
+    <p>모든 채점 항목은 아래 실제 연구·실무 문서의 근거에 매핑되어 있습니다.</p>
+    <div class="crit-grid">
+      <div class="crit">
+        <h3>GEO 논문 (Aggarwal et al.)</h3>
+        <div class="src">arXiv:2311.09735 · ICLR 제출본</div>
+        <p>출처·인용문·통계 추가가 AI 응답 가시성을 +30~40% 높이고, 유창성·가독성은 +15~30%, 키워드 스터핑은 효과 없음을 실험으로 검증.</p>
+        <span class="cnt">이 문서 기반 채점 항목 5개</span>
+      </div>
+      <div class="crit">
+        <h3>OtterlyAI 가이드</h3>
+        <div class="src">Generative Engine Optimization Guide</div>
+        <p>AI 크롤러(robots.txt) 접근성, Schema.org(JSON-LD), JS 렌더링 한계, llms.txt 실효성 등 실무 기술 기준.</p>
+        <span class="cnt">이 문서 기반 채점 항목 4개</span>
+      </div>
+      <div class="crit">
+        <h3>Context Institute</h3>
+        <div class="src">"The Architecture of Visibility" · SSRN 6546718</div>
+        <p>Query Coverage, Retrieval Eligibility, Fragment Quality, Citation Reliability 등 AI 인용을 결정하는 6대 프리미티브.</p>
+        <span class="cnt">이 문서 기반 채점 항목 6개</span>
+      </div>
+    </div>
+    <p class="crit-note">점수는 페이지 구조·콘텐츠 신호 기반의 예측이며 실제 노출·인용을 보장하지 않습니다. 개선 우선순위를 잡는 참고 지표로 활용하세요.</p>
+  </section>
+
   <footer>
-    <b>채점 근거 문서</b><br>
-    Aggarwal, Murahari et al., "GEO: Generative Engine Optimization" (arXiv:2311.09735 / ICLR 제출본) — 인용·인용문·통계 추가 +30~40%, 유창성·가독성 +15~30%, 키워드 스터핑은 효과 없음<br>
-    OtterlyAI, "Generative Engine Optimization Guide" — Schema.org(JSON-LD), AI 크롤러 robots.txt, JS 렌더링 한계, llms.txt 실효성<br>
-    Sean Pan (Context Institute), "GEO: The Architecture of Visibility" (SSRN 6546718) — Query Coverage, Retrieval Eligibility, Fragment Quality, Citation Reliability 등 6대 프리미티브<br>
-    구글 검색 센터 가이드라인 · 네이버 서치어드바이저 / C-Rank / D.I.A<br><br>
-    백링크, 브랜드 언급량(Wikipedia·Reddit·PR), 실제 페이지 속도(Core Web Vitals) 등 외부 데이터가 필요한 항목은 점수에 포함되지 않습니다.
+    SEO/GEO 진단실 · geotest.todaymocha.com · 근거: GEO 논문(arXiv:2311.09735) · OtterlyAI · Context Institute(SSRN 6546718) · 구글 검색 센터 · 네이버 서치어드바이저<br>
+    백링크·브랜드 언급량·실측 페이지 속도(Core Web Vitals) 등 외부 데이터가 필요한 항목은 점수에 포함되지 않습니다.
   </footer>
 </div>
 
@@ -267,7 +496,7 @@ const AXES = {
   tech:   { name: "기술 기반", desc: "크롤링·렌더링·모바일", color: "#f59e0b" }
 };
 
-let es = null, pages = [], errors = [], startTime = 0, timer = null;
+let es = null, pages = [], errors = [], startTime = 0, timer = null, lastCrawlerMatrix = null;
 
 /* 항목별 상세 실행 가이드 (키: axis|label) */
 const GUIDES = {
@@ -339,17 +568,30 @@ function grade(s) {
 }
 function scClass(s) { return s >= 90 ? "g" : s >= 70 ? "b" : s >= 50 ? "a" : "r"; }
 function ring(el, score, color) {
-  el.style.background = `conic-gradient(${color} ${score * 3.6}deg, #edeef2 0deg)`;
+  el.style.background = `conic-gradient(${color} ${score * 3.6}deg, var(--track) 0deg)`;
 }
 function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function copyText(btn, text) {
+  navigator.clipboard.writeText(text).then(() => { const o = btn.textContent; btn.textContent = "복사됨 ✓"; setTimeout(() => btn.textContent = o, 1400); });
+}
+/* 스텝퍼: stepperId 안의 각 .step을 현재 단계에 맞춰 active/done 처리 */
+function setStep(stepperId, cur) {
+  const el = $(stepperId); if (!el) return;
+  el.querySelectorAll(".step").forEach(s => {
+    const n = +s.dataset.step;
+    s.classList.toggle("done", n < cur);
+    s.classList.toggle("active", n === cur);
+  });
+}
 
 function start() {
   let input = $("url").value.trim();
   if (!input) return;
-  pages = []; errors = [];
+  pages = []; errors = []; lastCrawlerMatrix = null;
   $("error").style.display = "none";
   $("results").style.display = "none";
   $("progress").style.display = "block";
+  setStep("p-stepper", 1);
   $("p-cur").textContent = "사이트맵 수집 중...";
   $("go").textContent = "중지"; $("go").classList.add("stop");
   startTime = Date.now();
@@ -360,13 +602,16 @@ function start() {
     const d = JSON.parse(e.data);
     if (d.type === "fatal") { showError(d.message); return stop(); }
     if (d.type === "init") {
+      setStep("p-stepper", 2);
       $("p-cur").textContent = d.sitemapUrls ? `사이트맵에서 URL ${d.sitemapUrls.toLocaleString()}개 발견, 분석 시작...` : "사이트맵 없음 — 내부 링크를 따라 크롤링합니다...";
     }
     if (d.type === "page") {
       pages.push(d);
+      setStep("p-stepper", 3);
       $("p-analyzed").textContent = d.analyzed.toLocaleString();
       $("p-found").textContent = d.discovered.toLocaleString();
       $("p-queued").textContent = d.queued.toLocaleString();
+      $("p-s2").textContent = " " + d.analyzed + "/" + d.discovered;
       $("p-bar").style.width = Math.round(d.analyzed / Math.max(1, d.discovered) * 100) + "%";
       $("p-cur").textContent = "분석: " + d.url;
     }
@@ -375,6 +620,8 @@ function start() {
       $("p-failed").textContent = errors.length;
     }
     if (d.type === "done") {
+      setStep("p-stepper", 5);
+      lastCrawlerMatrix = d.crawlerMatrix || null;
       stop();
       $("p-cur").textContent = `완료 — ${d.analyzed.toLocaleString()}개 페이지, ${d.elapsedSec}초 소요`;
       render();
@@ -389,7 +636,7 @@ function start() {
 function stop() {
   if (es) { es.close(); es = null; }
   clearInterval(timer);
-  $("go").textContent = "전체 분석"; $("go").classList.remove("stop");
+  $("go").textContent = "진단 시작"; $("go").classList.remove("stop");
 }
 
 function showError(msg) { $("error").textContent = msg; $("error").style.display = "block"; }
@@ -482,6 +729,20 @@ function render() {
   });
 
   $("err-list").innerHTML = errors.length ? `<b>가져오기 실패 ${errors.length}건:</b> ` + errors.slice(0, 30).map(e => esc(e.url) + " (" + esc(e.error) + ")").join(" · ") + (errors.length > 30 ? " 외 " + (errors.length - 30) + "건" : "") : "";
+
+  // G-6 크롤러 매트릭스
+  if (lastCrawlerMatrix && lastCrawlerMatrix.length) {
+    $("site-matrix").innerHTML = matrixHtml(lastCrawlerMatrix);
+    $("site-matrix-panel").style.display = "block";
+  } else $("site-matrix-panel").style.display = "none";
+
+  // G-5 재진단 diff
+  const checkState = {};
+  for (const p of pages) for (const c of p.checks) checkState[c.axis + "|" + c.label] = c.status;
+  $("site-diff").innerHTML = diffBanner($("url").value.trim(), { google: scores.google, naver: scores.naver, geo: scores.geo, tech: scores.tech, total }, checkState);
+
+  reportTarget = $("url").value.trim();
+  $("symptoms").style.display = "none";
   $("results").style.display = "block";
 }
 
@@ -505,7 +766,7 @@ const KW_AXES = {
   evidence: { name: "근거·신뢰", color: "#16a34a" },
   eligibility: { name: "검색 자격", color: "#f59e0b" }
 };
-let kes = null, kwResults = [], kwMode = "site";
+let kes = null, kwResults = [], kwMode = "site", kwMatrix = null;
 
 document.querySelectorAll(".kmtab").forEach(t => {
   t.addEventListener("click", () => {
@@ -532,27 +793,31 @@ function startKw() {
   const url = $("kurl").value.trim();
   const kws = $("kws").value.trim();
   if (!url || !kws) { showKwError("사이트 주소와 키워드를 모두 입력하세요."); return; }
-  kwResults = [];
+  kwResults = []; kwMatrix = null;
   $("kerror").style.display = "none";
   $("kresults").innerHTML = "";
   $("kprogress").style.display = "block";
+  setStep("kp-stepper", 1);
   $("kp-text").textContent = "사이트 크롤링 중...";
   $("kp-count").textContent = "";
   $("kgo").textContent = "중지"; $("kgo").classList.add("stop");
 
   const params = new URLSearchParams({
     url, keywords: kws,
+    competitors: $("kcomp").value.trim(),
     nid: $("nid").value.trim(), nsec: $("nsec").value.trim(),
     gkey: $("gkey").value.trim(), gcx: $("gcx").value.trim()
   });
 
   if (kwMode === "blog") {
+    setStep("kp-stepper", 2);
     $("kp-text").textContent = "글을 가져와 채점 중...";
     $("kp-bar").style.width = "60%";
     kes = { close() {} }; // 버튼 상태 재사용을 위한 더미
     fetch("/api/keyword-single?" + params.toString())
       .then(r => r.json())
       .then(d => {
+        setStep("kp-stepper", 5);
         stopKw(); $("kprogress").style.display = "none";
         if (d.error) return showKwError(d.error);
         renderKwSingle(d);
@@ -566,16 +831,19 @@ function startKw() {
     const d = JSON.parse(e.data);
     if (d.type === "fatal") { showKwError(d.message); return stopKw(); }
     if (d.type === "page") {
+      setStep("kp-stepper", 2);
       $("kp-text").textContent = "사이트 크롤링 중...";
       $("kp-count").textContent = `${d.analyzed}개 페이지 분석 / 발견 ${d.discovered}`;
+      $("kp-s2").textContent = " " + d.analyzed + "/" + d.discovered;
       $("kp-bar").style.width = Math.round(d.analyzed / Math.max(1, d.discovered) * 100) + "%";
     }
     if (d.type === "keywordStart") {
+      setStep("kp-stepper", 3);
       $("kp-text").textContent = `"${d.keyword}" 채점 중...`;
       $("kp-bar").style.width = "100%";
     }
     if (d.type === "keywordResult") { kwResults.push(d); renderKw(); }
-    if (d.type === "done") { stopKw(); $("kprogress").style.display = "none"; }
+    if (d.type === "done") { setStep("kp-stepper", 5); kwMatrix = d.crawlerMatrix || null; renderKw(); stopKw(); $("kprogress").style.display = "none"; }
   };
   kes.onerror = () => {
     if (!kwResults.length) showKwError("서버 연결이 끊어졌습니다. 잠시 후 다시 시도하세요.");
@@ -607,7 +875,7 @@ function serpPillPost(engine, r) {
 
 function renderKwSingle(d) {
   const icon = { pass: "✓", warn: "!", fail: "✕", info: "i" };
-  let html = "";
+  let html = `<div class="kw-actions no-print"><button class="print-btn" onclick="printReport()">진단서 인쇄 / PDF 저장</button></div>`;
 
   const PLAT = {
     naver: { label: "네이버 블로그로 감지됨", note: "네이버 블로그는 JSON-LD 스키마 코드를 직접 넣을 수 없어 스키마 항목은 점수에서 제외했습니다. 질문형 소제목 + 첫 문장 결론 답변 + 근거·사례 구조로 승부하세요." },
@@ -662,6 +930,11 @@ function renderKwSingle(d) {
       inner += `<div class="rewrite-box"><b>이 글은 "${esc(k.keyword)}" 기준 주요 항목을 충족합니다.</b> 최신성 유지(수정일 갱신)와 외부 채널에서의 언급 확보에 집중하세요.</div>`;
     }
 
+    inner += roadmapHtml(k.roadmap);
+    inner += fragmentsHtml(k.fragments);
+    inner += competitorHtml(k, d.competitors, k.keyword);
+    inner += fixesHtml(k.fixes);
+
     inner += `<details style="margin-top:6px"><summary style="cursor:pointer;font-weight:700;font-size:14px;padding:8px 0">상세 진단 (미충족 ${fails.length}건 포함 전체 ${k.checks.length}개 항목)</summary>` +
       k.checks.map(c => `<div class="check"><div class="ico ${c.status}">${icon[c.status]}</div>
         <div style="flex:1"><b>${esc(c.label)}</b> <span class="badge">${KW_AXES[c.axis] ? KW_AXES[c.axis].name : c.axis}</span>
@@ -670,8 +943,13 @@ function renderKwSingle(d) {
     return `<div class="kw-card">${inner}</div>`;
   }).join("");
 
-  html += `<div class="warn-box" style="background:#f8fafc;border-color:#e2e8f0;color:var(--sub)">이 점수는 페이지의 구조·콘텐츠 신호를 기반으로 한 예측이며, 실제 검색 노출이나 AI 인용을 보장하지 않습니다. 개선 우선순위를 잡는 참고 지표로 활용하세요.</div>`;
+  if (d.crawlerMatrix && d.crawlerMatrix.length) {
+    html += `<div class="kw-card"><h3 style="margin-bottom:6px">AI 크롤러 접근 매트릭스</h3><div class="kw-best" style="margin-bottom:10px">이 도메인의 robots.txt 기준, AI 봇별 수집 허용 상태입니다.</div><div style="overflow-x:auto">${matrixHtml(d.crawlerMatrix)}</div></div>`;
+  }
 
+  html += `<div class="warn-box" style="opacity:.85">이 점수는 페이지의 구조·콘텐츠 신호를 기반으로 한 예측이며, 실제 검색 노출이나 AI 인용을 보장하지 않습니다. 개선 우선순위를 잡는 참고 지표로 활용하세요.</div>`;
+
+  reportTarget = d.page.url;
   $("kresults").innerHTML = html;
 }
 
@@ -731,15 +1009,133 @@ function renderKw() {
             <td class="sc ${scClass(t.scores.total)}">${t.scores.total}</td><td>${t.scores.relevance}</td><td>${t.scores.answer}</td></tr>`).join("") +
           `</tbody></table></div></details>`;
       }
+      inner += roadmapHtml(k.roadmap);
+      inner += fragmentsHtml(k.fragments);
+      inner += fixesHtml(k.fixes);
     }
     return `<div class="kw-card">${inner}</div>`;
   }).join("");
 
+  if (kwMatrix && kwMatrix.length) {
+    html += `<div class="kw-card"><h3 style="margin-bottom:6px">AI 크롤러 접근 매트릭스</h3><div class="kw-best" style="margin-bottom:10px">이 사이트의 robots.txt 기준, AI 봇별 수집 허용 상태입니다.</div><div style="overflow-x:auto">${matrixHtml(kwMatrix)}</div></div>`;
+  }
+
+  reportTarget = $("kurl").value.trim();
+  if (kwResults.length) html = `<div class="kw-actions no-print"><button class="print-btn" onclick="printReport()">진단서 인쇄 / PDF 저장</button></div>` + html;
   $("kresults").innerHTML = html;
 }
 
 $("kgo").addEventListener("click", () => { kes ? stopKw() : startKw(); });
 $("kws").addEventListener("keydown", e => { if (e.key === "Enter" && !kes) startKw(); });
+
+/* ===== 신규 기능 공용 렌더 헬퍼 (G-1~G-6, T-6) ===== */
+let fixSeq = 0, reportTarget = "";
+
+function matrixHtml(matrix) {
+  const label = { allowed: "허용", partial: "부분 차단", blocked: "차단", unknown: "확인 불가" };
+  return `<table class="matrix"><thead><tr><th>AI 봇</th><th>상태</th><th>설명</th></tr></thead><tbody>` +
+    matrix.map(r => `<tr><td class="mbot">${esc(r.bot)}</td>
+      <td class="mstat ${r.status}">${label[r.status] || r.status}${(r.status === "partial" || r.status === "blocked") && r.detail ? `<div style="font-weight:400;color:var(--sub);font-size:11px">${esc(r.detail)}</div>` : ""}</td>
+      <td class="mdesc">${esc(r.desc)}</td></tr>`).join("") + `</tbody></table>`;
+}
+
+function diffBanner(url, scores, checkState) {
+  let hist = []; try { hist = JSON.parse(localStorage.getItem("geo_diff") || "[]"); } catch (e) {}
+  const prev = hist.filter(h => h.url === url).sort((a, b) => b.t - a.t)[0];
+  let html = "";
+  if (prev) {
+    const dScore = scores.total - prev.scores.total;
+    let resolved = 0, regress = 0;
+    for (const k in checkState) {
+      const was = prev.checkState[k], now = checkState[k];
+      if (was && was !== "pass" && now === "pass") resolved++;
+      if ((!was || was === "pass") && now && now !== "pass") regress++;
+    }
+    const sign = dScore >= 0 ? "up" : "down";
+    html = `<div class="diff-banner">${new Date(prev.t).toLocaleDateString()} 진단 대비 <span class="${sign}">${dScore >= 0 ? "+" : ""}${dScore}점</span> · 해결된 항목 ${resolved}개 · 새로 생긴 문제 ${regress}개
+      <details><summary>항목별 변화 보기</summary><div style="margin-top:6px">` +
+      (Object.keys(checkState).filter(k => (prev.checkState[k] || "") !== checkState[k]).map(k =>
+        `<div>${esc(k.split("|")[1] || k)}: ${esc(prev.checkState[k] || "(없음)")} → <b>${esc(checkState[k])}</b></div>`).join("") || "<div style='color:var(--sub)'>항목 상태 변화 없음</div>") +
+      `</div></details></div>`;
+  }
+  hist.push({ url, t: Date.now(), scores, checkState });
+  hist = hist.slice(-20);
+  try { localStorage.setItem("geo_diff", JSON.stringify(hist)); } catch (e) {}
+  return html;
+}
+
+function fixesHtml(fixes) {
+  if (!fixes) return "";
+  const id = "fix" + (fixSeq++);
+  const block = (title, desc, code) => `<div class="fixblock"><div class="fhead"><div><span class="ft">${title}</span> <span class="fd">${desc}</span></div>
+    <button class="copybtn" onclick='copyText(this, this.closest(".fixblock").querySelector("pre").textContent)'>복사</button></div><pre>${esc(code)}</pre></div>`;
+  let inner = block("JSON-LD 구조화 데이터", "Article/BlogPosting + Organization · {…}는 실제 값으로 채우세요", fixes.jsonLd);
+  if (fixes.faqPage) inner += block("FAQPage 스키마", "페이지의 질문형 소제목+답변에서 자동 추출", fixes.faqPage);
+  else if (fixes.faqCandidates && fixes.faqCandidates.length) inner += `<div class="fixblock"><div class="fhead"><span class="ft">FAQPage 후보</span></div><div style="font-size:12.5px;color:var(--sub)">질문형 소제목이 부족합니다. 아래 소제목을 "~인가요?" 형태 질문+답변으로 바꾸면 FAQ로 만들 수 있습니다:<ul style="margin:6px 0 0 18px">${fixes.faqCandidates.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div></div>`;
+  inner += block("메타 태그 세트", "title·description·OG·twitter:card" + (fixes.meta ? ` · 현재 title ${fixes.meta.titleLen}자 / desc ${fixes.meta.descLen}자` : ""), fixes.metaTags);
+  inner += block("robots.txt 권장안", "AI 크롤러 허용 + Sitemap 병합본", fixes.robotsTxt);
+  return `<div class="fixwrap"><button class="fixbtn" onclick="this.nextElementSibling.classList.toggle('open')">⚙ 복붙 가능한 수정 코드 받기</button><div class="fixpanel" id="${id}">${inner}</div></div>`;
+}
+
+function fragmentsHtml(fr) {
+  if (!fr) return "";
+  let h = `<div class="subhead"><span class="tag">AI 시점</span> 인용 후보 조각 분석</div>`;
+  if (fr.kwBest) h += `<div style="font-size:12.5px;color:var(--sub);margin-bottom:4px">지금 상태에서 이 키워드에 AI가 가져갈 문장:</div><div class="aiquote">"${esc(fr.kwBest.text.slice(0, 400))}"</div>`;
+  else h += `<div class="aiquote empty">현재 이 질문에 AI가 가져갈 문장이 없습니다. 키워드를 다루는 자기완결 문단(80~600자, 결론 우선)을 추가하세요.</div>`;
+  if (fr.top && fr.top.length) {
+    h += `<div class="subhead" style="font-size:13px">인용 가능성 높은 조각 Top ${fr.top.length}</div>`;
+    h += fr.top.map(f => `<div class="frag good">"${esc(f.text.slice(0, 240))}${f.text.length > 240 ? "…" : ""}"<div class="why"><b class="g">채택 이유</b> · ${f.reasons.map(esc).join(" · ")}</div></div>`).join("");
+  }
+  if (fr.bad && fr.bad.length) {
+    h += `<div class="subhead" style="font-size:13px">인용 불가능한 조각</div>`;
+    h += fr.bad.map(f => `<div class="frag bad">"${esc(f.text.slice(0, 180))}${f.text.length > 180 ? "…" : ""}"<div class="why"><b class="r">문제</b> · ${f.reasons.map(esc).join(" · ")}</div></div>`).join("");
+  }
+  return h;
+}
+
+function roadmapHtml(rm) {
+  if (!rm || !rm.phases || !rm.phases.length) return "";
+  let prev = rm.before;
+  let h = `<div class="subhead"><span class="tag">로드맵</span> 우선순위 + 점수 시뮬레이션 (현재 ${rm.before}점)</div><div class="roadmap">`;
+  h += rm.phases.map(p => {
+    const from = prev, delta = p.total - prev; prev = p.total;
+    return `<div class="rmphase"><div class="rmh"><b>${esc(p.label)}</b><span class="delta">${from} → ${p.total} (${delta >= 0 ? "+" : ""}${delta}점)</span></div>
+      <div class="rmbar"><div style="width:${p.total}%"></div></div>
+      <ul>${p.items.slice(0, 8).map(it => `<li>${esc(it.label)}${it.advice ? ` <span style="color:var(--sub)">— ${esc(it.advice)}</span>` : ""}</li>`).join("")}${p.items.length > 8 ? `<li style="color:var(--sub)">외 ${p.items.length - 8}개</li>` : ""}</ul></div>`;
+  }).join("");
+  return h + `</div>`;
+}
+
+function competitorHtml(mine, competitors, keyword) {
+  if (!competitors || !competitors.length) return "";
+  const rows = [["관련성", "relevance"], ["답변", "answer"], ["근거", "evidence"], ["검색자격", "eligibility"], ["종합", "total"]];
+  const cols = competitors.map(c => {
+    if (!c.ok) return { url: c.url, ok: false };
+    const r = (c.results || []).find(x => x.keyword === keyword);
+    return { url: c.url, ok: !!r, scores: r ? r.scores : null, checks: r ? r.checks : null };
+  });
+  let h = `<div class="subhead"><span class="tag">경쟁 비교</span> 같은 키워드로 나란히 진단</div>`;
+  h += `<div style="overflow-x:auto"><table class="cmp"><thead><tr><th>항목</th><th>내 페이지</th>${cols.map((c, i) => `<th>경쟁 ${i + 1}</th>`).join("")}</tr></thead><tbody>`;
+  h += rows.map(([nm, key]) => `<tr><td>${nm}</td><td class="sc ${scClass(mine.scores[key])}">${mine.scores[key]}</td>${cols.map(c => c.ok ? `<td class="sc ${scClass(c.scores[key])}">${c.scores[key]}</td>` : `<td style="color:var(--sub)">비교 불가</td>`).join("")}</tr>`).join("");
+  h += `</tbody></table></div>`;
+  const gaps = [];
+  for (const c of cols) {
+    if (!c.ok || !c.checks) continue;
+    for (const cc of c.checks) {
+      const m = mine.checks.find(x => x.label === cc.label && x.axis === cc.axis);
+      if (cc.status === "pass" && m && m.status !== "pass" && !gaps.includes(cc.label)) gaps.push(cc.label);
+    }
+  }
+  if (gaps.length) h += `<div class="rewrite-box"><b>경쟁사는 충족했지만 내 페이지는 미충족인 항목 (수주 논리)</b><ul class="gap-list">${gaps.slice(0, 12).map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>`;
+  return h;
+}
+
+function printReport() {
+  const d = new Date();
+  const ymd = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  $("print-head").innerHTML = `<h1>SEO/GEO 진단서</h1><div class="meta">대상: ${esc(reportTarget || "-")} · 진단일: ${ymd} · geotest.todaymocha.com</div>`;
+  window.print();
+}
 </script>
 </body>
 </html>

@@ -116,18 +116,26 @@ function analyze(rawHtml, url, extras) {
 
   /* FAQ 콘텐츠(질문-답변 형식) 감지 휴리스틱 — 스키마 코드 유무와 별개 */
   let faqPairs = 0;
+  const qaPairs = []; // G-1 FAQPage 초안용 실제 Q/A 텍스트
   for (const h of doc.querySelectorAll("h2,h3,h4")) {
     const ht = (h.textContent || "").trim();
     if (!/\?$|나요\??$|인가요\??$|까요\??$|을까\??$|할까\??$|무엇|어떻게|어떤|왜/.test(ht)) continue;
     let sib = h.nextElementSibling, hop = 0;
     while (sib && hop < 3) {
       if (/^H[1-6]$/.test(sib.tagName)) break;
-      if (/^(P|DIV|UL|OL|DL)$/.test(sib.tagName) && (sib.textContent || "").trim().length > 20) { faqPairs++; break; }
+      if (/^(P|DIV|UL|OL|DL)$/.test(sib.tagName) && (sib.textContent || "").trim().length > 20) {
+        faqPairs++;
+        const ans = (sib.textContent || "").replace(/\s+/g, " ").trim().slice(0, 600);
+        if (ht.length <= 200 && ans.length >= 20) qaPairs.push({ q: ht, a: ans });
+        break;
+      }
       sib = sib.nextElementSibling; hop++;
     }
   }
   const qMarkers = (text.match(/Q\d*\s*[.)]|질문\s*[:：]/g) || []).length;
   const hasFaqContent = faqPairs >= 2 || qMarkers >= 2;
+  const metaAuthor = meta("author");
+  const lang = doc.documentElement.getAttribute("lang") || "";
 
   /* 제목-H1 중복 여부 (C-1) */
   const h1Text = h1s.length ? (h1s[0].textContent || "").trim() : "";
@@ -394,7 +402,8 @@ function analyze(rawHtml, url, extras) {
     textLen, allScripts,
     noindex: robotsMeta.includes("noindex"),
     https: u.protocol === "https:",
-    listsTables: lists + tables
+    listsTables: lists + tables,
+    metaAuthor, pubTime, modTime, ogImage: ogI, lang, qaPairs
   };
 
   return { url, title, checks: C, scores, internalUrls, page };
@@ -592,4 +601,159 @@ function scoreKeyword(result, keyword, extras) {
   return { url: result.url, title: result.title, keyword: kw, scores, checks: C };
 }
 
-module.exports = { analyze, scoreAxis, scoreKeyword, AXES, KW_AXES };
+/* ===== G-6: AI 크롤러 접근 매트릭스 ===== */
+const AI_BOT_INFO = {
+  "GPTBot": "ChatGPT 학습·수집. 차단 시 ChatGPT 학습 데이터에서 제외",
+  "OAI-SearchBot": "ChatGPT 검색 색인. 차단 시 ChatGPT 검색 결과 인용에서 제외",
+  "ChatGPT-User": "사용자가 링크를 열 때의 실시간 수집. 차단 시 링크를 붙여도 본문을 못 읽음",
+  "ClaudeBot": "Claude 학습·수집. 차단 시 Claude 답변 인용에서 제외",
+  "PerplexityBot": "Perplexity 색인. 차단 시 Perplexity 답변 인용에서 제외",
+  "Google-Extended": "Gemini·AI Overview 학습/인용. 차단 시 구글 AI 답변에서 제외 (일반 검색 색인과는 별개)",
+  "CCBot": "Common Crawl. 다수 AI 모델의 학습 소스. 차단 시 오픈 데이터셋 학습에서 제외",
+  "Bingbot": "Bing·Copilot 색인. 차단 시 Copilot 인용에서 제외"
+};
+
+function aiCrawlerMatrix(robots) {
+  const blocks = {};
+  if (robots) {
+    let cur = null;
+    for (const line of robots.split(/\r?\n/)) {
+      const m = line.match(/^\s*(user-agent|disallow|allow)\s*:\s*(.*?)\s*$/i);
+      if (!m) continue;
+      const key = m[1].toLowerCase(), val = m[2];
+      if (key === "user-agent") { cur = val.toLowerCase(); if (!blocks[cur]) blocks[cur] = []; }
+      else if (cur !== null) blocks[cur].push({ rule: key, path: val });
+    }
+  }
+  const evalBot = ua => {
+    if (robots === null || robots === undefined) return { status: "unknown", detail: "robots.txt 확인 불가" };
+    const own = blocks[ua.toLowerCase()];
+    const rules = own || blocks["*"] || [];
+    const disallows = rules.filter(r => r.rule === "disallow" && r.path);
+    if (disallows.some(r => r.path === "/")) return { status: "blocked", detail: "전체 차단 (Disallow: /)" };
+    if (disallows.length) return { status: "partial", detail: "부분 차단: " + disallows.map(r => r.path).slice(0, 4).join(", ") };
+    return { status: "allowed", detail: own ? "명시적 허용" : "제한 없음" };
+  };
+  return Object.keys(AI_BOT_INFO).map(b => Object.assign({ bot: b, desc: AI_BOT_INFO[b] }, evalBot(b)));
+}
+
+/* ===== G-2: 인용 후보 조각(fragment) 품질 평가 ===== */
+function evaluateFragments(paras, keyword) {
+  const kw = (keyword || "").toLowerCase().trim();
+  const deictic = /^(이것|그것|이건|그건|이는|그는|이렇게|그렇게|이러한|그러한|여기|거기|이 방법|그 방법|위와 같이|앞서|또한|그리고|하지만|그래서|이에|따라서)/;
+  const entity = /[A-Z][A-Za-z]{2,}|[가-힣]{2,}(대학교|대학|학원|학과|고등학교|중학교|회사|기업|기관|센터|협회|재단|병원|은행|브랜드|서비스|프로그램|아카데미|연구소)/;
+  const numUnit = /\d+(\.\d+)?\s*(%|퍼센트|억|만|천|배|개|명|원|시간|분|위|점|등급|년|월|일|km|kg)/;
+  const list = (paras || []).map((t, i) => {
+    const len = t.length;
+    const selfContained = len >= 80 && len <= 600;
+    const hasEntity = entity.test(t);
+    const hasNumber = numUnit.test(t);
+    const deicticStart = deictic.test(t.trim());
+    let score = 0;
+    if (selfContained) score += 2; else if (len >= 40) score += 1; else score -= 1;
+    if (hasEntity) score += 1;
+    if (hasNumber) score += 1;
+    if (deicticStart) score -= 2;
+    const reasons = [];
+    reasons.push(selfContained ? "자기완결 길이(80~600자)" : (len < 80 ? "너무 짧음(" + len + "자)" : "너무 김(" + len + "자)"));
+    reasons.push(hasEntity ? "고유명사 포함" : "고유명사 없음");
+    if (hasNumber) reasons.push("수치 포함");
+    if (deicticStart) reasons.push("지시어로 시작(맥락 의존)");
+    return { i, text: t, len, score, selfContained, hasEntity, hasNumber, deicticStart, reasons, kwHit: !!kw && t.toLowerCase().includes(kw) };
+  });
+  const top = [...list].sort((a, b) => b.score - a.score || b.len - a.len).filter(f => f.score >= 3).slice(0, 3);
+  const bad = [...list].sort((a, b) => a.score - b.score).filter(f => f.score <= 1).slice(0, 3);
+  let kwBest = null;
+  if (kw) { const hits = list.filter(f => f.kwHit).sort((a, b) => b.score - a.score); kwBest = hits[0] || null; }
+  return { count: list.length, top, bad, kwBest };
+}
+
+/* ===== G-3: 우선순위 로드맵 + 점수 시뮬레이션 ===== */
+const EFFORT = {
+  "타이틀 태그":1,"메타 디스크립션":1,"H1 헤딩":1,"헤딩 계층 구조":2,"캐노니컬 URL":1,"이미지 대체 텍스트":2,"색인 허용 (noindex 없음)":1,"언어 선언 (lang)":1,"구조화 데이터 (JSON-LD)":1,"내부 링크":2,"robots.txt / 사이트맵":1,"콘텐츠 분량":3,"제목-H1 차별화":1,
+  "타이틀 길이 (네이버 표시 기준)":1,"og:title":1,"og:description":1,"og:image":1,"H1 중복 없음":1,"서치어드바이저 소유 확인":1,"콘텐츠 충실성 (D.I.A.)":3,"제목-본문 일관성":2,"최신성 신호":1,
+  "출처 인용 (Cite Sources)":2,"통계·수치 포함 (Statistics Addition)":2,"인용문 사용 (Quotation Addition)":2,"유창성·가독성 (Fluency / Easy-to-Understand)":2,"키워드 스터핑 없음":2,"AI 크롤러 접근 허용 (robots.txt)":1,"정적 HTML 콘텐츠 (JS 의존도)":3,"핵심 스키마 마크업 (JSON-LD)":1,"프래그먼트 품질 (자기완결적 문단)":2,"주제 포괄성 (Query Coverage)":2,"답변 우선 구조 (정의형 도입부)":2,"작성자·신뢰 신호 (Citation Reliability)":1,"목록·표 활용":2,"시맨틱 HTML":3,"llms.txt (참고)":1,
+  "HTTPS":3,"모바일 뷰포트":1,"문자 인코딩":1,"DOCTYPE":1,"파비콘":1,"HTML 문서 크기":2,"렌더링 차단 스크립트":2,"이미지 지연 로딩":2,"구식 태그 미사용":2,"트위터 카드 / 공유 메타":1,
+  "타이틀에 키워드":1,"H1에 키워드":1,"소제목(H2/H3)에 키워드":2,"본문 등장 빈도":2,"본문 상단(30%) 배치":2,"메타 설명·OG에 키워드":1,"정의형 답변 문장":2,"질문형 헤딩 매칭":2,"자기완결적 답변 문단":2,"FAQ 질문-답변 구조":2,"수치의 연도·출처 병기":2,"통계·수치":2,"외부 출처 인용":2,"인용문":2,"작성자 정보":1,"발행·수정일":1,"색인 허용":1,"AI 크롤러 허용":1
+};
+const EFFORT_LABEL = { 1: "1주차 · Quick Win (코드 삽입)", 2: "2~4주 · 콘텐츠 보강", 3: "구조 개선 (개발 공수)" };
+
+function totalFor(checks, kind) {
+  if (kind === "keyword") return Math.round(scoreAxis(checks, "relevance") * 0.3 + scoreAxis(checks, "answer") * 0.3 + scoreAxis(checks, "evidence") * 0.2 + scoreAxis(checks, "eligibility") * 0.2);
+  return Math.round((scoreAxis(checks, "google") + scoreAxis(checks, "naver") + scoreAxis(checks, "geo") + scoreAxis(checks, "tech")) / 4);
+}
+
+function buildRoadmap(checks, kind) {
+  const unmet = checks.filter(c => c.status === "fail" || c.status === "warn");
+  const buckets = { 1: [], 2: [], 3: [] };
+  for (const c of unmet) buckets[EFFORT[c.label] || 2].push(c);
+  const before = totalFor(checks, kind);
+  const phases = [];
+  let cum = checks.map(c => Object.assign({}, c));
+  for (const lvl of [1, 2, 3]) {
+    if (!buckets[lvl].length) continue;
+    cum = cum.map(c => buckets[lvl].some(b => b.label === c.label && b.axis === c.axis) ? Object.assign({}, c, { status: "pass" }) : c);
+    phases.push({ level: lvl, label: EFFORT_LABEL[lvl], items: buckets[lvl].map(c => ({ label: c.label, axis: c.axis, status: c.status, advice: c.advice })), total: totalFor(cum, kind) });
+  }
+  return { before, phases };
+}
+
+/* ===== G-1: 맞춤 수정 코드 자동 생성 ===== */
+function generateFixes(result, keyword, robots) {
+  const p = result.page || {};
+  const url = result.url || "";
+  let origin = "";
+  try { origin = new URL(url).origin; } catch (e) { /* ignore */ }
+  const kw = (keyword || "").trim();
+  const title = p.titleText || "";
+  const desc = p.metaDesc || "";
+  const s10 = s => (s || "").slice(0, 10);
+  const wrap = o => '<script type="application/ld+json">\n' + JSON.stringify(o, null, 2) + '\n<\/script>';
+
+  const artType = (p.ldTypes || []).some(t => /BlogPosting/i.test(t)) ? "BlogPosting" : "Article";
+  const article = {
+    "@context": "https://schema.org", "@type": artType,
+    "headline": title || "{글 제목 입력}",
+    "description": desc || "{70~160자 요약 입력}",
+    "image": p.ogImage || "{대표 이미지 URL 입력}",
+    "author": { "@type": "Person", "name": p.metaAuthor || "{작성자 이름 입력}" },
+    "publisher": { "@type": "Organization", "name": "{회사/사이트명 입력}", "logo": { "@type": "ImageObject", "url": "{로고 URL 입력}" } },
+    "datePublished": p.pubTime ? s10(p.pubTime) : "{발행일 YYYY-MM-DD}",
+    "dateModified": (p.modTime || p.pubTime) ? s10(p.modTime || p.pubTime) : "{수정일 YYYY-MM-DD}",
+    "mainEntityOfPage": { "@type": "WebPage", "@id": url }
+  };
+  const org = { "@context": "https://schema.org", "@type": "Organization", "name": "{회사/사이트명 입력}", "url": origin || url, "logo": "{로고 이미지 URL 입력}" };
+  const jsonLd = wrap(article) + "\n" + wrap(org);
+
+  let faqPage = null, faqCandidates = [];
+  const pairs = (p.qaPairs || []).slice(0, 6);
+  if (pairs.length >= 2) {
+    faqPage = wrap({ "@context": "https://schema.org", "@type": "FAQPage", "mainEntity": pairs.map(pr => ({ "@type": "Question", "name": pr.q, "acceptedAnswer": { "@type": "Answer", "text": pr.a } })) });
+  } else {
+    faqCandidates = (p.h23Texts || []).slice(0, 5);
+  }
+
+  let metaTitle = title;
+  if (!metaTitle) metaTitle = kw ? (kw + " — {핵심 요약}") : "{페이지 제목 입력}";
+  else if (kw && !metaTitle.toLowerCase().includes(kw.toLowerCase())) metaTitle = kw + " — " + metaTitle;
+  let metaDesc = desc;
+  if (!metaDesc) metaDesc = kw ? (kw + "은(는) {핵심 답변}. {근거·수치}. 아래에서 자세히 정리했습니다.") : "{페이지 내용을 요약한 70~160자 고유 설명 입력}";
+  const metaTags = [
+    '<title>' + metaTitle + '</title>',
+    '<meta name="description" content="' + metaDesc + '">',
+    '<meta property="og:title" content="' + metaTitle + '">',
+    '<meta property="og:description" content="' + metaDesc + '">',
+    '<meta property="og:image" content="' + (p.ogImage || '{대표 이미지 URL}') + '">',
+    '<meta property="og:url" content="' + url + '">',
+    '<meta name="twitter:card" content="summary_large_image">'
+  ].join("\n");
+
+  const rl = ["User-agent: *", "Allow: /", "", "# AI 크롤러 명시적 허용 (민감 경로만 선별 Disallow 권장)"];
+  ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "PerplexityBot", "Google-Extended", "CCBot"].forEach(b => { rl.push("User-agent: " + b); rl.push("Allow: /"); rl.push(""); });
+  rl.push("Sitemap: " + (origin || "https://도메인") + "/sitemap.xml");
+  const robotsTxt = rl.join("\n");
+
+  return { jsonLd, faqPage, faqCandidates, metaTags, robotsTxt, meta: { titleLen: title.length, descLen: desc.length, hasTitle: !!title, hasDesc: !!desc, currentRobots: robots || null } };
+}
+
+module.exports = { analyze, scoreAxis, scoreKeyword, AXES, KW_AXES, aiCrawlerMatrix, evaluateFragments, buildRoadmap, generateFixes };
